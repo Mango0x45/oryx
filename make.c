@@ -38,10 +38,7 @@ static char *cflags_dbg[] = {
 };
 
 static char *cflags_rls[] = {
-	"-DNDEBUG=1",    "-flto",         "-O3",
-#ifndef __APPLE__
-	"-march=native", "-mtune=native",
-#endif
+	"-DNDEBUG=1", "-flto", "-march=native", "-mtune=native", "-O3",
 };
 
 static char *argv0;
