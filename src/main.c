@@ -21,16 +21,14 @@ main(int argc, char **argv)
 	struct {
 		char *p;
 		size_t len;
-	} file = {
-		.p = readfile(argv[1], &file.len),
-	};
+	} file;
+	file.p = readfile(argv[1], &file.len);
 
 	struct {
 		struct lexeme *p;
 		size_t len;
-	} toks = {
-		.p = lexstring(file.p, file.len, &toks.len),
-	};
+	} toks;
+	toks.p = lexstring(file.p, file.len, &toks.len);
 
 #if DEBUG
 	free(file.p);
