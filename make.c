@@ -20,7 +20,7 @@ enum {
 
 static char *cflags_all[] = {
 	"-pipe",
-	"-std=c99",
+	"-std=c11",
 	"-Wall",
 	"-Wextra",
 	"-Wno-attributes",
