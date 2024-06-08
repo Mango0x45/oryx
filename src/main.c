@@ -30,6 +30,31 @@ main(int argc, char **argv)
 	} toks;
 	toks.p = lexstring(file.p, file.len, &toks.len);
 
+	for (size_t i = 0; i < toks.len; i++) {
+		struct lexeme l = toks.p[i];
+		switch (l.kind) {
+		case LEXIDENT:
+			printf("Identifier: ‘%.*s’\n", (int)l.len, l.p);
+			break;
+		case LEXCOLON: puts("Colon"); break;
+		case LEXLBRACE: puts("Left brace"); break;
+		case LEXLPAR: puts("Left parenthesis"); break;
+		case LEXRBRACE: puts("Right brace"); break;
+		case LEXRPAR: puts("Right parenthesis"); break;
+		case LEXSEMI: puts("Semicolon"); break;
+		case LEXAMP: puts("Ampersand"); break;
+		case LEXEQ: puts("Equals"); break;
+		case LEXLANGL: puts("Left angle bracket"); break;
+		case LEXMINUS: puts("Minus"); break;
+		case LEXPIPE: puts("Pipe"); break;
+		case LEXPLUS: puts("Plus"); break;
+		case LEXRANGL: puts("Right angle bracket"); break;
+		case LEXSLASH: puts("Slash"); break;
+		case LEXSTAR: puts("Asterisk"); break;
+		case LEXTILDE: puts("Tilde"); break;
+		}
+	}
+
 #if DEBUG
 	free(file.p);
 	free(toks.p);
