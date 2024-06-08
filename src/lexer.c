@@ -11,6 +11,14 @@
 #include "lexer.h"
 #include "unicode.h"
 
+#ifdef __GNUC__
+#	define likely(x)   __builtin_expect(!!(x), 1)
+#	define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#	define likely(x)   (x)
+#	define unlikely(x) (x)
+#endif
+
 #define SIZE_WDTH (sizeof(size_t) * 8)
 
 static bool skip_comment(const uchar **, const uchar *);
@@ -36,7 +44,7 @@ lexstring(const uchar *code, size_t codesz)
 	struct lexemes_soa data = mk_lexemes_soa();
 
 	const uchar *start = code, *end = start + codesz;
-	while (code < end) {
+	while (likely(code < end)) {
 		const uchar *spnbeg = code, *spnend;
 		rune ch = utf8_decode(&code);
 
@@ -90,17 +98,17 @@ lexstring(const uchar *code, size_t codesz)
 			data.strs[data.len].p = spnbeg;
 
 			spnend = code;
-			while (code < end && rune_is_xidc(ch)) {
+			while (likely(code < end) && rune_is_xidc(ch)) {
 				spnend = code;
 				ch = utf8_decode(&code);
 			}
-			if (code < end)
+			if (likely(code < end))
 				code = spnend;
 
 			data.strs[data.len++].len = spnend - spnbeg;
 		}
 
-		if (data.len == data.cap)
+		if (unlikely(data.len == data.cap))
 			lexemes_soa_resz(&data);
 	}
 
@@ -113,7 +121,7 @@ skip_comment(const uchar **ptr, const uchar *end)
 	int nst = 1;
 	const uchar *p = *ptr;
 
-	for (p++; p < end; p++) {
+	for (p++; likely(p < end); p++) {
 		if (p + 1 < end) {
 			if (p[0] == '*' && p[1] == '/') {
 				p++;
