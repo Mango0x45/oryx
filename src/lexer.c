@@ -1,24 +1,26 @@
+#include <assert.h>
+#include <errno.h>
 #include <inttypes.h>
+#include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "errors.h"
 #include "lexer.h"
 #include "unicode.h"
 
-static bool skip_comment(const unsigned char **, const char *);
+#define SIZE_WDTH (sizeof(size_t) * 8)
 
-struct lexeme *
-lexstring(const unsigned char *code, size_t codesz, size_t *lcnt)
+static bool skip_comment(const uchar **, const uchar *);
+
+static struct lexemes_soa mk_lexemes_soa(void);
+static void lexemes_soa_resz(struct lexemes_soa *);
+
+struct lexemes_soa
+lexstring(const uchar *code, size_t codesz)
 {
-	struct {
-		struct lexeme *buf;
-		size_t len, cap;
-	} data = {.cap = 1024};
-	if ((data.buf = malloc(data.cap)) == NULL)
-		err("malloc:");
-
 #if ORYX_SIMD
 	if (!utf8_validate_simd(code, codesz)) {
 #endif
@@ -31,19 +33,31 @@ lexstring(const unsigned char *code, size_t codesz, size_t *lcnt)
 	}
 #endif
 
-	const unsigned char *start = code, *end = start + codesz;
+	struct lexemes_soa data = mk_lexemes_soa();
+
+	const uchar *start = code, *end = start + codesz;
 	while (code < end) {
-		struct lexeme l;
-		const unsigned char *spnbeg = code, *spnend;
+		const uchar *spnbeg = code, *spnend;
 		rune ch = utf8_decode(&code);
 
 		switch (ch) {
 		/* Single-byte literals */
-		case '&': case '(': case ')': case '*':
-		case '+': case '-': case ':': case '=':
-		case ';': case '{': case '|': case '}':
+		case '&':
+		case '(':
+		case ')':
+		case '*':
+		case '+':
+		case '-':
+		case ':':
+		case ';':
+		case '=':
+		case '[':
+		case ']':
+		case '{':
+		case '|':
+		case '}':
 		case '~':
-			l.kind = ch;
+			data.kinds[data.len++] = ch;
 			break;
 
 		/* Single- or double-byte literals */
@@ -54,17 +68,17 @@ lexstring(const unsigned char *code, size_t codesz, size_t *lcnt)
 				continue;
 			}
 
-			l.kind = ch;
+			data.kinds[data.len++] = ch;
 			break;
 
 		case '<':
 		case '>':
-			l.kind = ch;
+			data.kinds[data.len++] = ch;
 
 			/* See the comment in lexer.h for where 193 comes from */
 			if (code < end && code[0] == ch) {
 				code++;
-				l.kind += 193;
+				data.kinds[data.len - 1] += 193;
 			}
 			break;
 
@@ -72,8 +86,8 @@ lexstring(const unsigned char *code, size_t codesz, size_t *lcnt)
 			if (!rune_is_xids(ch))
 				continue;
 
-			l.kind = LEXIDENT;
-			l.p = spnbeg;
+			data.kinds[data.len] = LEXIDENT;
+			data.strs[data.len].p = spnbeg;
 
 			spnend = code;
 			while (code < end && rune_is_xidc(ch)) {
@@ -83,27 +97,21 @@ lexstring(const unsigned char *code, size_t codesz, size_t *lcnt)
 			if (code < end)
 				code = spnend;
 
-			l.len = spnend - spnbeg;
+			data.strs[data.len++].len = spnend - spnbeg;
 		}
 
-		if (data.len == data.cap) {
-			data.cap *= 2;
-			if ((data.buf = realloc(data.buf, data.cap)) == NULL)
-				err("realloc:");
-		}
-
-		data.buf[data.len++] = l;
+		if (data.len == data.cap)
+			lexemes_soa_resz(&data);
 	}
 
-	*lcnt = data.len;
-	return data.buf;
+	return data;
 }
 
 bool
-skip_comment(const unsigned char **ptr, const char *end)
+skip_comment(const uchar **ptr, const uchar *end)
 {
 	int nst = 1;
-	const char *p = *ptr;
+	const uchar *p = *ptr;
 
 	for (p++; p < end; p++) {
 		if (p + 1 < end) {
@@ -123,4 +131,61 @@ skip_comment(const unsigned char **ptr, const char *end)
 out:
 	*ptr = ++p;
 	return true;
+}
+
+struct lexemes_soa
+mk_lexemes_soa(void)
+{
+	static_assert(offsetof(struct lexemes_soa, kinds)
+	                  < offsetof(struct lexemes_soa, strs),
+	              "KINDS is not the first field before STRS");
+
+	struct lexemes_soa soa;
+	soa.len = 0;
+	soa.cap = 2048;
+
+	/* Ensure that soa.strs is properly aligned */
+	size_t pad = alignof(*soa.strs)
+	           - soa.cap * sizeof(*soa.kinds) % alignof(*soa.strs);
+	if (pad == 8)
+		pad = 0;
+
+	if ((soa.kinds = malloc(soa.cap * LEXEMES_SOA_BLKSZ + pad)) == NULL)
+		err("malloc:");
+	soa.strs = (void *)((char *)soa.kinds + soa.cap * sizeof(*soa.kinds) + pad);
+
+	return soa;
+}
+
+void
+lexemes_soa_resz(struct lexemes_soa *soa)
+{
+	static_assert(offsetof(struct lexemes_soa, kinds)
+	                  < offsetof(struct lexemes_soa, strs),
+	              "KINDS is not the first field before STRS");
+
+	size_t ncap, pad, newsz;
+	ptrdiff_t off = (char *)soa->strs - (char *)soa->kinds;
+
+	/* The capacity is always going to be a power of 2, so checking for overflow
+	   becomes pretty trivial */
+	if ((soa->cap >> (SIZE_WDTH - 1)) != 0) {
+		errno = EOVERFLOW;
+		err("lexemes_soa_resz:");
+	}
+	ncap = soa->cap << 1;
+
+	/* Ensure that soa->strs is properly aligned */
+	pad = alignof(*soa->strs)
+	    - ncap * sizeof(*soa->kinds) % alignof(*soa->strs);
+	if (pad == 8)
+		pad = 0;
+
+	newsz = ncap * LEXEMES_SOA_BLKSZ + pad;
+
+	if ((soa->kinds = realloc(soa->kinds, newsz)) == NULL)
+		err("realloc:");
+	soa->strs = (void *)((char *)soa->kinds + ncap * sizeof(*soa->kinds) + pad);
+	memmove(soa->strs, (char *)soa->kinds + off, soa->len * sizeof(*soa->strs));
+	soa->cap = ncap;
 }

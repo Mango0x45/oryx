@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "types.h"
+
 enum {
 	LEXIDENT,
 
@@ -12,12 +14,14 @@ enum {
 	LEXEQ = '=',
 	LEXLANGL = '<',
 	LEXLBRACE = '{',
+	LEXLBRKT = '[',
 	LEXLPAR = '(',
 	LEXMINUS = '-',
 	LEXPIPE = '|',
 	LEXPLUS = '+',
 	LEXRANGL = '>',
 	LEXRBRACE = '}',
+	LEXRBRKT = ']',
 	LEXRPAR = ')',
 	LEXSEMI = ';',
 	LEXSLASH = '/',
@@ -33,12 +37,16 @@ enum {
 
 typedef uint8_t lexeme_kind;
 
-struct lexeme {
-	lexeme_kind kind;
-	const char *p;
-	size_t len;
+#define LEXEMES_SOA_BLKSZ (sizeof(lexeme_kind) + sizeof(struct strview))
+
+struct lexemes_soa {
+	lexeme_kind *kinds;
+	struct strview *strs;
+	size_t len, cap;
 };
 
-struct lexeme *lexstring(const unsigned char *, size_t, size_t *);
+#define lexemes_free(x) free(x.kinds)
+
+struct lexemes_soa lexstring(const uchar *, size_t);
 
 #endif /* !ORYX_LEXER_H */
