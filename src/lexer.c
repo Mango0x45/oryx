@@ -146,23 +146,21 @@ out:
 struct lexemes_soa
 mk_lexemes_soa(void)
 {
+	struct lexemes_soa soa;
+
 	static_assert(offsetof(struct lexemes_soa, kinds)
 	                  < offsetof(struct lexemes_soa, strs),
 	              "KINDS is not the first field before STRS");
+	static_assert((LEXEMES_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.strs))
+	                  == 0,
+	              "Additional padding is required to properly align STRS");
 
-	struct lexemes_soa soa;
 	soa.len = 0;
-	soa.cap = 2048;
+	soa.cap = LEXEMES_DFLT_CAP;
 
-	/* Ensure that soa.strs is properly aligned */
-	size_t pad = alignof(*soa.strs)
-	           - soa.cap * sizeof(*soa.kinds) % alignof(*soa.strs);
-	if (pad == 8)
-		pad = 0;
-
-	if ((soa.kinds = malloc(soa.cap * LEXEMES_SOA_BLKSZ + pad)) == NULL)
+	if ((soa.kinds = malloc(soa.cap * LEXEMES_SOA_BLKSZ)) == NULL)
 		err("malloc:");
-	soa.strs = (void *)((char *)soa.kinds + soa.cap * sizeof(*soa.kinds) + pad);
+	soa.strs = (void *)((char *)soa.kinds + soa.cap * sizeof(*soa.kinds));
 
 	return soa;
 }
