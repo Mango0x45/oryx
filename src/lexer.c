@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,7 +20,8 @@
 #	define unlikely(x) (x)
 #endif
 
-#define SIZE_WDTH (sizeof(size_t) * 8)
+#define LEXEMES_DFLT_CAP (2048)
+#define SIZE_WDTH        (sizeof(size_t) * CHAR_BIT)
 
 static bool skip_comment(const uchar **, const uchar *);
 
