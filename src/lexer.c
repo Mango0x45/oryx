@@ -166,7 +166,7 @@ lexemes_soa_resz(struct lexemes_soa *soa)
 	/* Ensure that soa->strs is properly aligned */
 	pad = alignof(*soa->strs)
 	    - ncap * sizeof(*soa->kinds) % alignof(*soa->strs);
-	if (pad == 8)
+	if (pad == alignof(*soa->strs))
 		pad = 0;
 
 	newsz = ncap * LEXEMES_SOA_BLKSZ + pad;
