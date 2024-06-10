@@ -3,6 +3,6 @@
 
 #include <stdnoreturn.h>
 
-noreturn void err(const char *, ...);
+noreturn void err(const char *, ...) __attribute__((format(printf, 1, 2)));
 
 #endif /* !ORYX_ERRORS_H */

@@ -9,14 +9,14 @@
 typedef uint32_t rune;
 
 /* Assert that CH has the Unicode Pattern_White_Space property */
-bool rune_is_pat_ws(rune ch);
+bool rune_is_pat_ws(rune ch) __attribute__((const));
 
 /* Assert that CH has the Unicode XID_Start or XID_Continue property.  The
    rune_is_xids() function extends XID_Start to include U+005F LOW LINE, and the
    rune_is_xidc() function extends XID_Continue to include U+2032 PRIME,
    U+2033 DOUBLE PRIME, U+2034 TRIPLE PRIME, and U+2057 QUADRUPLE PRIME. */
-bool rune_is_xids(rune ch);
-bool rune_is_xidc(rune ch);
+bool rune_is_xids(rune ch) __attribute__((const));
+bool rune_is_xidc(rune ch) __attribute__((const));
 
 /* Decode the first UTF-8 rune in S, and point S to the next rune in the stream.
    This function assumes that S points to a buffer that’s padded to a length of
