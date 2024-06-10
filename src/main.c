@@ -7,6 +7,7 @@
 
 #include "errors.h"
 #include "lexer.h"
+#include "parser.h"
 
 static char *readfile(const char *, size_t *);
 
@@ -18,81 +19,16 @@ main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
-	struct {
-		char *p;
-		size_t len;
-	} file;
-	file.p = readfile(argv[1], &file.len);
+	size_t srclen;
+	char *src = readfile(argv[1], &srclen);
 
-	struct lexemes_soa toks = lexstring(file.p, file.len);
-
-	for (size_t i = 0; i < toks.len; i++) {
-		switch (toks.kinds[i]) {
-		case LEXIDENT: {
-			struct strview sv = toks.strs[i];
-			printf("Identifier: ‘%.*s’\n", (int)sv.len, sv.p);
-			break;
-		}
-		case LEXAMP:
-			puts("Ampersand");
-			break;
-		case LEXCOLON:
-			puts("Colon");
-			break;
-		case LEXEQ:
-			puts("Equals");
-			break;
-		case LEXLANGL:
-			puts("Left angle bracket");
-			break;
-		case LEXLBRACE:
-			puts("Left brace");
-			break;
-		case LEXLBRKT:
-			puts("Right bracket");
-			break;
-		case LEXLPAR:
-			puts("Left parenthesis");
-			break;
-		case LEXMINUS:
-			puts("Minus");
-			break;
-		case LEXPIPE:
-			puts("Pipe");
-			break;
-		case LEXPLUS:
-			puts("Plus");
-			break;
-		case LEXRANGL:
-			puts("Right angle bracket");
-			break;
-		case LEXRBRACE:
-			puts("Right brace");
-			break;
-		case LEXRBRKT:
-			puts("Right bracket");
-			break;
-		case LEXRPAR:
-			puts("Right parenthesis");
-			break;
-		case LEXSEMI:
-			puts("Semicolon");
-			break;
-		case LEXSLASH:
-			puts("Slash");
-			break;
-		case LEXSTAR:
-			puts("Asterisk");
-			break;
-		case LEXTILDE:
-			puts("Tilde");
-			break;
-		}
-	}
+	struct lexemes_soa toks = lexstring(src, srclen);
+	struct ast_soa ast = parsetoks(toks);
 
 #if DEBUG
-	free(file.p);
+	free(src);
 	lexemes_free(toks);
+	ast_free(ast);
 #endif
 	return EXIT_SUCCESS;
 }
