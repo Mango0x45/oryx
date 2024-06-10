@@ -44,21 +44,9 @@ lexstring(const uchar *code, size_t codesz)
 
 		switch (ch) {
 		/* Single-byte literals */
-		case '&':
-		case '(':
-		case ')':
-		case '*':
-		case '+':
-		case '-':
-		case ':':
-		case ';':
-		case '=':
-		case '[':
-		case ']':
-		case '{':
-		case '|':
-		case '}':
-		case '~':
+		case '&': case '(': case ')': case '*': case '+':
+		case '-': case ':': case ';': case '=': case '[':
+		case ']': case '{': case '|': case '}': case '~':
 			data.kinds[data.len++] = ch;
 			break;
 
@@ -143,7 +131,7 @@ mk_lexemes_soa(void)
 	static_assert(offsetof(struct lexemes_soa, kinds)
 	                  < offsetof(struct lexemes_soa, strs),
 	              "KINDS is not the first field before STRS");
-	static_assert((LEXEMES_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.strs))
+	static_assert(LEXEMES_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.strs)
 	                  == 0,
 	              "Additional padding is required to properly align STRS");
 

@@ -7,26 +7,26 @@
 #include "types.h"
 
 enum {
-	LEXIDENT,
+	LEXIDENT, /* Identifier */
 
-	LEXAMP = '&',
-	LEXCOLON = ':',
-	LEXEQ = '=',
-	LEXLANGL = '<',
+	LEXAMP    = '&',
+	LEXCOLON  = ':',
+	LEXEQ     = '=',
+	LEXLANGL  = '<',
 	LEXLBRACE = '{',
-	LEXLBRKT = '[',
-	LEXLPAR = '(',
-	LEXMINUS = '-',
-	LEXPIPE = '|',
-	LEXPLUS = '+',
-	LEXRANGL = '>',
+	LEXLBRKT  = '[',
+	LEXLPAR   = '(',
+	LEXMINUS  = '-',
+	LEXPIPE   = '|',
+	LEXPLUS   = '+',
+	LEXRANGL  = '>',
 	LEXRBRACE = '}',
-	LEXRBRKT = ']',
-	LEXRPAR = ')',
-	LEXSEMI = ';',
-	LEXSLASH = '/',
-	LEXSTAR = '*',
-	LEXTILDE = '~',
+	LEXRBRKT  = ']',
+	LEXRPAR   = ')',
+	LEXSEMI   = ';',
+	LEXSLASH  = '/',
+	LEXSTAR   = '*',
+	LEXTILDE  = '~',
 
 	/* We keep these exactly 2 away from each other, because ‘<’ and ‘>’ are 2
 	   away from each other in ASCII.  This gives us a simple mapping from some
@@ -45,7 +45,7 @@ struct lexemes_soa {
 	size_t len, cap;
 };
 
-#define lexemes_free(x) free(x.kinds)
+#define lexemes_free(x) free((x).kinds)
 
 struct lexemes_soa lexstring(const uchar *, size_t);
 
