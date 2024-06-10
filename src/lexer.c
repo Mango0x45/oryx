@@ -12,14 +12,6 @@
 #include "lexer.h"
 #include "unicode.h"
 
-#ifdef __GNUC__
-#	define likely(x)   __builtin_expect(!!(x), 1)
-#	define unlikely(x) __builtin_expect(!!(x), 0)
-#else
-#	define likely(x)   (x)
-#	define unlikely(x) (x)
-#endif
-
 #define LEXEMES_DFLT_CAP (2048)
 #define SIZE_WDTH        (sizeof(size_t) * CHAR_BIT)
 
