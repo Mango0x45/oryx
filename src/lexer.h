@@ -8,6 +8,7 @@
 
 enum {
 	LEXIDENT, /* Identifier */
+	LEXNUM,   /* Numeric constant */
 
 	LEXAMP    = '&',
 	LEXCOLON  = ':',

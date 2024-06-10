@@ -20,6 +20,12 @@ static bool skip_comment(const uchar **, const uchar *);
 static struct lexemes_soa mk_lexemes_soa(void);
 static void lexemes_soa_resz(struct lexemes_soa *);
 
+static const bool is_numeric_lookup[UCHAR_MAX + 1] = {
+	['0'] = true, ['1'] = true, ['2'] = true,  ['3'] = true,
+	['4'] = true, ['5'] = true, ['6'] = true,  ['7'] = true,
+	['8'] = true, ['9'] = true, ['\''] = true,
+};
+
 struct lexemes_soa
 lexstring(const uchar *code, size_t codesz)
 {
@@ -70,6 +76,26 @@ lexstring(const uchar *code, size_t codesz)
 				code++;
 				data.kinds[data.len - 1] += 193;
 			}
+			break;
+
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			data.kinds[data.len] = LEXNUM;
+			data.strs[data.len].p = spnbeg;
+
+			while (likely(code < end) && is_numeric_lookup[code[0]]) {
+				if (unlikely(code[0] == '\'' && code[-1] == '\'')) {
+					err("Adjacent numeric separators at byte %td",
+					    code - start);
+				}
+				code++;
+			}
+			if (unlikely(code < end && code[-1] == '\'')) {
+				err("Numeric literal ends with numeric separator at byte %td",
+				    code - start);
+			}
+
+			data.strs[data.len++].len = code - spnbeg;
 			break;
 
 		default:
