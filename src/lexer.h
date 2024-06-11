@@ -37,12 +37,12 @@ enum {
 	LEXRANGL_DBL = UINT8_MAX - 0, /* >> */
 };
 
-typedef uint8_t lexeme_kind;
+typedef uint8_t lexeme_kind_t_;
 
-#define LEXEMES_SOA_BLKSZ (sizeof(lexeme_kind) + sizeof(struct strview))
+#define LEXEMES_SOA_BLKSZ (sizeof(lexeme_kind_t_) + sizeof(struct strview))
 
 struct lexemes_soa {
-	lexeme_kind *kinds;
+	lexeme_kind_t_ *kinds;
 	struct strview *strs;
 	size_t len, cap;
 };

@@ -46,13 +46,13 @@ enum {
 	ASTBINSUB = '-',
 };
 
-typedef uint8_t ast_kind;
+typedef uint8_t ast_kind_t_;
 
 #define AST_EMPTY     ((idx_t_)-1)
-#define AST_SOA_BLKSZ (sizeof(ast_kind) + sizeof(idx_t_) * 3)
+#define AST_SOA_BLKSZ (sizeof(ast_kind_t_) + sizeof(idx_t_) * 3)
 
 struct ast_soa {
-	ast_kind *kinds;
+	ast_kind_t_ *kinds;
 	idx_t_ *lexemes;
 	struct {
 		idx_t_ lhs, rhs;
