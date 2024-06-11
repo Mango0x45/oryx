@@ -106,7 +106,17 @@ codegenexpr(LLVMBuilderRef builder, struct ast ast, struct lexemes toks,
 	case ASTNUMLIT: {
 		/* TODO: Arbitrary precision? */
 		struct strview sv = toks.strs[ast.lexemes[i]];
-		*v = LLVMConstIntOfStringAndSize(LLVMInt64Type(), sv.p, sv.len, 10);
+
+		/* TODO: Temporary one-time-use allocator? */
+		size_t len = 0;
+		char *p = bufalloc(NULL, sv.len, 1);
+		for (size_t i = 0; i < sv.len; i++) {
+			if (sv.p[i] != '\'')
+				p[len++] = sv.p[i];
+		}
+
+		*v = LLVMConstIntOfStringAndSize(LLVMInt64Type(), p, len, 10);
+		free(p);
 		return i + 1;
 	}
 	}
