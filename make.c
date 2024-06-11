@@ -31,14 +31,6 @@ static char *cflags_all[] = {
 #if __GLIBC__
 	"-D_GNU_SOURCE",
 #endif
-#if __GNUC__
-	"-Dlikely(x)=__builtin_expect(!!(x), 1)",
-	"-Dunlikely(x)=__builtin_expect(!!(x), 0)",
-#else
-	"-D__attribute__(x)=",
-	"-Dlikely(x)=(x)",
-	"-Dunlikely(x)=(x)",
-#endif
 };
 
 static char *cflags_dbg[] = {

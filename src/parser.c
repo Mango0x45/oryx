@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "alloc.h"
+#include "common.h"
 #include "errors.h"
 #include "parser.h"
 
@@ -22,9 +23,9 @@ static parsefn parseblk,
                parsestmt,
                parsetype;
 
-static idx_t_ astalloc(struct ast *);
 static struct ast mkast(void);
-static void astresz(struct ast *);
+static idx_t_ astalloc(struct ast *) __attribute__((nonnull));
+static void astresz(struct ast *)    __attribute__((nonnull));
 
 static size_t toksidx;
 

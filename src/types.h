@@ -4,8 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef unsigned char uchar;
 typedef uint32_t      idx_t_;
+typedef uint32_t      rune;
+typedef unsigned char uchar;
+
+#define RUNE_C(x) UINT32_C(x)
 
 struct strview {
 	const uchar *p;

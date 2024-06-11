@@ -7,6 +7,7 @@
 
 #include "alloc.h"
 #include "codegen.h"
+#include "common.h"
 #include "errors.h"
 #include "parser.h"
 
