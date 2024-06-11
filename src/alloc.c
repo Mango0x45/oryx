@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@
 void *
 bufalloc(void *ptr, size_t nmemb, size_t size)
 {
+	assert(nmemb * size != 0);
 	if (size > SIZE_MAX / nmemb) {
 		errno = EOVERFLOW;
 		err("%s:", __func__);
