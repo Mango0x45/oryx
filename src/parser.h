@@ -1,6 +1,7 @@
 #ifndef ORYX_PARSER_H
 #define ORYX_PARSER_H
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -44,9 +45,13 @@ enum {
 	/* Binary sub
 	   ‘lhs - rhs’ */
 	ASTBINSUB = '-',
+
+	_AST_LAST_ENT = 256,
 };
 
 typedef uint8_t ast_kind_t_;
+static_assert(_AST_LAST_ENT - 1 <= (ast_kind_t_)-1,
+              "Too many AST tokens to fix in AST_KIND_T_");
 
 #define AST_EMPTY     ((idx_t_)-1)
 #define AST_SOA_BLKSZ (sizeof(ast_kind_t_) + sizeof(idx_t_) * 3)

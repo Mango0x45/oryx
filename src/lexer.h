@@ -1,6 +1,7 @@
 #ifndef ORYX_LEXER_H
 #define ORYX_LEXER_H
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -35,9 +36,13 @@ enum {
 	   token T to the doubled equivalent by doing T += 193. */
 	LEXLANGL_DBL = UINT8_MAX - 2, /* << */
 	LEXRANGL_DBL = UINT8_MAX - 0, /* >> */
+
+	_LEX_LAST_ENT,
 };
 
 typedef uint8_t lexeme_kind_t_;
+static_assert(_LEX_LAST_ENT - 1 <= (lexeme_kind_t_)-1,
+              "Too many lexer tokens to fix in LEXEME_KIND_T_");
 
 #define LEXEMES_BLKSZ (sizeof(lexeme_kind_t_) + sizeof(struct strview))
 
