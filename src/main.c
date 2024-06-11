@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "codegen.h"
 #include "errors.h"
 #include "lexer.h"
 #include "parser.h"
@@ -24,6 +25,7 @@ main(int argc, char **argv)
 
 	struct lexemes_soa toks = lexstring(src, srclen);
 	struct ast_soa ast = parsetoks(toks);
+	codegen(ast, toks);
 
 #if DEBUG
 	free(src);

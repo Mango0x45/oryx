@@ -28,11 +28,10 @@ struct strs {
 	size_t len, cap;
 };
 
-enum pkg_config_flags {
-	PC_CFLAGS = 1 << 0,
-	PC_LIBS = 1 << 1,
-	PC_SHARED = 1 << 2,
-	PC_STATIC = 1 << 3,
+enum llvm_config_flags {
+	LLVM_CFLAGS  = 1 << 0,
+	LLVM_LDFLAGS = 1 << 1,
+	LLVM_LIBS    = 1 << 2,
 };
 
 void cbsinit(int, char **);
@@ -64,7 +63,7 @@ static void cmdput(struct strs);
 static void cmdfput(FILE *, struct strs);
 
 static char *swpext(const char *, const char *);
-static bool pcquery(struct strs *, const char *, int);
+static bool llvmquery(struct strs *, int);
 static bool binexists(const char *);
 static int nproc(void);
 
@@ -376,20 +375,17 @@ cmdfput(FILE *fp, struct strs xs)
 }
 
 bool
-pcquery(struct strs *xs, const char *lib, int flags)
+llvmquery(struct strs *xs, int flags)
 {
 	struct strs ys = {0};
 
-	strspushl(&ys, "pkg-config", "--silence-errors");
-	if (flags & PC_CFLAGS)
+	strspushl(&ys, "llvm-config");
+	if (flags & LLVM_CFLAGS)
 		strspushl(&ys, "--cflags");
-	if (flags & PC_LIBS)
+	if (flags & LLVM_LDFLAGS)
+		strspushl(&ys, "--ldflags");
+	if (flags & LLVM_LIBS)
 		strspushl(&ys, "--libs");
-	if (flags & PC_SHARED)
-		strspushl(&ys, "--shared");
-	if (flags & PC_STATIC)
-		strspushl(&ys, "--static");
-	strspushl(&ys, (char *)lib);
 
 	char *buf;
 	size_t bufsz;
@@ -398,8 +394,10 @@ pcquery(struct strs *xs, const char *lib, int flags)
 	if (ec != EXIT_SUCCESS)
 		return false;
 
-	/* Remove trailing newline */
-	buf[bufsz - 1] = 0;
+	for (size_t i = 0; i < bufsz; i++) {
+		if (buf[i] == '\n')
+			buf[i] = ' ';
+	}
 
 	wordexp_t we;
 	assert(wordexp(buf, &we, WRDE_NOCMD) == 0);

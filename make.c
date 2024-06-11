@@ -153,6 +153,8 @@ cc(void *arg)
 		strspushenv(&cmd, "CFLAGS", cflags_dbg, lengthof(cflags_dbg));
 	if (simd_flags != 0)
 		strspushl(&cmd, "-DORYX_SIMD=1");
+	if (strcmp(arg, "src/codegen.c") == 0)
+		llvmquery(&cmd, LLVM_CFLAGS);
 	strspushl(&cmd, "-o", dst, "-c", src);
 
 	cmdput(cmd);
@@ -175,6 +177,7 @@ ld(void)
 		strspushenv(&cmd, "CFLAGS", cflags_rls, lengthof(cflags_rls));
 	else
 		strspushenv(&cmd, "CFLAGS", cflags_dbg, lengthof(cflags_dbg));
+	llvmquery(&cmd, LLVM_LDFLAGS | LLVM_LIBS);
 	strspushl(&cmd, "-o", TARGET);
 
 	assert(glob("src/*.o", 0, globerr, &g) == 0);
