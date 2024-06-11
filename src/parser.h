@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "lexer.h"
+#include "types.h"
 
 enum {
 	/* Variable declaration, lhs and rhs may be unused
@@ -47,13 +48,14 @@ enum {
 
 typedef uint8_t ast_kind;
 
-#define AST_SOA_BLKSZ (sizeof(ast_kind) + sizeof(size_t) * 4)
+#define AST_EMPTY     ((idx_t_)-1)
+#define AST_SOA_BLKSZ (sizeof(ast_kind) + sizeof(idx_t_) * 3)
 
 struct ast_soa {
 	ast_kind *kinds;
-	size_t *lexemes;
+	idx_t_ *lexemes;
 	struct {
-		size_t lhs, rhs;
+		idx_t_ lhs, rhs;
 	} *kids;
 	size_t len, cap;
 };

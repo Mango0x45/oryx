@@ -12,10 +12,9 @@
 
 /* #define AST_DFLT_CAP (2048) */
 #define AST_DFLT_CAP (8)
-#define AST_EMPTY    ((size_t)-1)
 #define SIZE_WDTH    (sizeof(size_t) * CHAR_BIT)
 
-typedef size_t parsefn(struct ast_soa *, struct lexemes_soa);
+typedef idx_t_ parsefn(struct ast_soa *, struct lexemes_soa);
 static parsefn parseblk,
                parsedecl,
                parseexpr,
@@ -23,10 +22,9 @@ static parsefn parseblk,
                parsestmt,
                parsetype;
 
+static idx_t_ ast_alloc(struct ast_soa *);
 static struct ast_soa mk_ast_soa(void);
 static void ast_soa_resz(struct ast_soa *);
-
-static size_t ast_alloc(struct ast_soa *);
 
 static size_t toksidx;
 
@@ -44,10 +42,10 @@ parsetoks(struct lexemes_soa toks)
 	return ast;
 }
 
-size_t
+idx_t_
 parseblk(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	size_t i = ast_alloc(ast);
+	idx_t_ i = ast_alloc(ast);
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTBLK;
 	ast->kids[i].lhs = ast->kids[i].rhs = AST_EMPTY;
@@ -65,10 +63,10 @@ parseblk(struct ast_soa *ast, struct lexemes_soa toks)
 	return i;
 }
 
-size_t
+idx_t_
 parsedecl(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	size_t i = ast_alloc(ast);
+	idx_t_ i = ast_alloc(ast);
 	ast->lexemes[i] = toksidx;
 
 	if (toks.kinds[toksidx++] != LEXIDENT)
@@ -104,10 +102,10 @@ parsedecl(struct ast_soa *ast, struct lexemes_soa toks)
 	return i;
 }
 
-size_t
+idx_t_
 parseexpr(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	size_t i = ast_alloc(ast);
+	idx_t_ i = ast_alloc(ast);
 	ast->lexemes[i] = toksidx;
 
 	switch (toks.kinds[toksidx]) {
@@ -127,10 +125,10 @@ parseexpr(struct ast_soa *ast, struct lexemes_soa toks)
 	return i;
 }
 
-size_t
+idx_t_
 parseproto(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	size_t i = ast_alloc(ast);
+	idx_t_ i = ast_alloc(ast);
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTFNPROTO;
 	ast->kids[i].lhs = AST_EMPTY;
@@ -146,10 +144,10 @@ parseproto(struct ast_soa *ast, struct lexemes_soa toks)
 	return i;
 }
 
-size_t
+idx_t_
 parsestmt(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	size_t i;
+	idx_t_ i;
 
 	if (toks.kinds[toksidx] != LEXIDENT)
 		err("parser: Expected identifier");
@@ -173,10 +171,10 @@ parsestmt(struct ast_soa *ast, struct lexemes_soa toks)
 	return i;
 }
 
-size_t
+idx_t_
 parsetype(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	size_t i = ast_alloc(ast);
+	idx_t_ i = ast_alloc(ast);
 	ast->kinds[i] = ASTTYPE;
 	ast->lexemes[i] = toksidx;
 
@@ -254,24 +252,10 @@ ast_soa_resz(struct ast_soa *soa)
 	soa->cap = ncap;
 }
 
-size_t
+idx_t_
 ast_alloc(struct ast_soa *soa)
 {
 	if (soa->len == soa->cap)
 		ast_soa_resz(soa);
 	return soa->len++;
 }
-
-/* size_t */
-/* ast_soa_push(struct ast_soa *soa, ast_kind kind, size_t lexeme, size_t lhs, */
-/*              size_t rhs) */
-/* { */
-/* 	if (soa->len == soa->cap) */
-/* 		ast_soa_resz(soa); */
-/**/
-/* 	soa->kinds[soa->len] = kind; */
-/* 	soa->lexemes[soa->len] = lexeme; */
-/* 	soa->kids[soa->len].lhs = lhs; */
-/* 	soa->kids[soa->len].rhs = rhs; */
-/* 	return soa->len++; */
-/* } */

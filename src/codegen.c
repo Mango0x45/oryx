@@ -8,8 +8,7 @@
 #include "alloc.h"
 #include "codegen.h"
 #include "errors.h"
-
-#define AST_EMPTY ((size_t)-1)
+#include "parser.h"
 
 static size_t codegenstmt(LLVMBuilderRef, struct ast_soa, struct lexemes_soa,
                           size_t);
