@@ -13,8 +13,12 @@
 #include "lexer.h"
 #include "unicode.h"
 
-#define LEXEMES_DFLT_CAP (2048)
-#define SIZE_WDTH        (sizeof(size_t) * CHAR_BIT)
+#if DEBUG
+#	define LEXEMES_DFLT_CAP (8)
+#else
+#	define LEXEMES_DFLT_CAP (2048)
+#endif
+#define SIZE_WDTH (sizeof(size_t) * CHAR_BIT)
 
 static bool skip_comment(const uchar **, const uchar *);
 

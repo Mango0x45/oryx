@@ -11,17 +11,15 @@
 #include "errors.h"
 #include "parser.h"
 
-/* #define AST_DFLT_CAP (2048) */
-#define AST_DFLT_CAP (8)
-#define SIZE_WDTH    (sizeof(size_t) * CHAR_BIT)
+#if DEBUG
+#	define AST_DFLT_CAP (8)
+#else
+#	define AST_DFLT_CAP (2048)
+#endif
+#define SIZE_WDTH (sizeof(size_t) * CHAR_BIT)
 
-typedef idx_t_ parsefn(struct ast *, struct lexemes);
-static parsefn parseblk,
-               parsedecl,
-               parseexpr,
-               parseproto,
-               parsestmt,
-               parsetype;
+typedef idx_t_ parsefn(struct ast *, struct lexemes) __attribute__((nonnull));
+static parsefn parseblk, parsedecl, parseexpr, parseproto, parsestmt, parsetype;
 
 static struct ast mkast(void);
 static idx_t_ astalloc(struct ast *) __attribute__((nonnull));
