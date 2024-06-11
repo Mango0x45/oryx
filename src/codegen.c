@@ -27,8 +27,10 @@ codegen(struct ast ast, struct lexemes toks)
 			err("codegen: Expected constant declaration");
 
 		size_t expr = ast.kids[i].rhs;
-		if (ast.kinds[expr] != ASTFN)
+		if (ast.kinds[expr] != ASTFN) {
 			assert(!"not implemented");
+			__builtin_unreachable();
+		}
 
 		size_t proto = ast.kids[expr].lhs, body = ast.kids[expr].rhs;
 
@@ -91,6 +93,7 @@ codegenstmt(LLVMBuilderRef builder, struct ast ast, struct lexemes toks,
 	}
 
 	assert(!"unreachable");
+	__builtin_unreachable();
 }
 
 size_t
@@ -108,4 +111,5 @@ codegenexpr(LLVMBuilderRef builder, struct ast ast, struct lexemes toks,
 	}
 
 	assert(!"unreachable");
+	__builtin_unreachable();
 }
