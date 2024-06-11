@@ -59,7 +59,7 @@ static_assert(_AST_LAST_ENT - 1 <= (ast_kind_t_)-1,
 struct ast {
 	ast_kind_t_ *kinds;
 	idx_t_ *lexemes;
-	struct {
+	struct pair {
 		idx_t_ lhs, rhs;
 	} *kids;
 	size_t len, cap;

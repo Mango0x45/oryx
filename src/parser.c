@@ -33,7 +33,7 @@ parsetoks(struct lexemes toks)
 	struct ast ast = mkast();
 
 	for (;;) {
-		parsedecl(&ast, toks);
+		(void)parsedecl(&ast, toks);
 		if (toks.kinds[toksidx] == LEXEOF)
 			break;
 	}
@@ -53,7 +53,8 @@ parseblk(struct ast *ast, struct lexemes toks)
 		err("parser: Expected left brace");
 
 	while (toks.kinds[toksidx] != LEXRBRACE) {
-		ast->kids[i].rhs = parsestmt(ast, toks);
+		idx_t_ stmt = parsestmt(ast, toks);
+		ast->kids[i].rhs = stmt;
 		if (ast->kids[i].lhs == AST_EMPTY)
 			ast->kids[i].lhs = ast->kids[i].rhs;
 	}
@@ -73,9 +74,9 @@ parsedecl(struct ast *ast, struct lexemes toks)
 	if (toks.kinds[toksidx++] != LEXCOLON)
 		err("parser: Expected colon");
 
-	ast->kids[i].lhs = toks.kinds[toksidx] == LEXIDENT
-	                 ? parsetype(ast, toks)
-	                 : AST_EMPTY;
+	idx_t_ lhs = toks.kinds[toksidx] == LEXIDENT ? parsetype(ast, toks)
+	                                             : AST_EMPTY;
+	ast->kids[i].lhs = lhs;
 
 	switch (toks.kinds[toksidx++]) {
 	case LEXSEMI:
@@ -94,7 +95,8 @@ parsedecl(struct ast *ast, struct lexemes toks)
 		err("parser: Expected semicolon or equals");
 	}
 
-	ast->kids[i].rhs = parseexpr(ast, toks);
+	idx_t_ rhs = parseexpr(ast, toks);
+	ast->kids[i].rhs = rhs;
 	if (toks.kinds[toksidx++] != LEXSEMI)
 		err("parser: Expected semicolon");
 
@@ -114,8 +116,10 @@ parseexpr(struct ast *ast, struct lexemes toks)
 		break;
 	case LEXLPAR:
 		ast->kinds[i] = ASTFN;
-		ast->kids[i].lhs = parseproto(ast, toks);
-		ast->kids[i].rhs = parseblk(ast, toks);
+		idx_t_ lhs = parseproto(ast, toks);
+		idx_t_ rhs = parseblk(ast, toks);
+		ast->kids[i].lhs = lhs;
+		ast->kids[i].rhs = rhs;
 		break;
 	default:
 		err("parser: Expected expression");
@@ -137,9 +141,9 @@ parseproto(struct ast *ast, struct lexemes toks)
 	if (toks.kinds[toksidx++] != LEXRPAR)
 		err("parser: Expected right parenthesis");
 
-	ast->kids[i].rhs = toks.kinds[toksidx] == LEXIDENT
-	                 ? parsetype(ast, toks)
-	                 : AST_EMPTY;
+	idx_t_ rhs = toks.kinds[toksidx] == LEXIDENT ? parsetype(ast, toks)
+	                                             : AST_EMPTY;
+	ast->kids[i].rhs = rhs;
 	return i;
 }
 
@@ -156,10 +160,10 @@ parsestmt(struct ast *ast, struct lexemes toks)
 		i = astalloc(ast);
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;
-		if (toks.kinds[toksidx] != LEXSEMI)
-			ast->kids[i].rhs = parseexpr(ast, toks);
-		else
-			ast->kids[i].rhs = AST_EMPTY;
+
+		idx_t_ rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, toks)
+		                                            : AST_EMPTY;
+		ast->kids[i].rhs = rhs;
 		if (toks.kinds[toksidx++] != LEXSEMI)
 			err("parser: Expected semicolon");
 	} else if (toks.kinds[toksidx + 1] == LEXCOLON)
@@ -188,11 +192,10 @@ mkast(void)
 {
 	struct ast soa;
 
-	static_assert(AST_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.lexemes)
-	                  == 0,
+	static_assert(AST_DFLT_CAP * sizeof(*soa.kinds) % alignof(idx_t_) == 0,
 	              "Additional padding is required to properly align LEXEMES");
 	static_assert(AST_DFLT_CAP * (sizeof(*soa.kinds) + sizeof(*soa.lexemes))
-	                      % alignof(*soa.kids)
+	                      % alignof(struct pair)
 	                  == 0,
 	              "Additional padding is required to properly align KIDS");
 
@@ -224,16 +227,15 @@ astresz(struct ast *soa)
 	ncap = soa->cap << 1;
 
 	/* Ensure that soa->lexemes is properly aligned */
-	pad1 = alignof(*soa->lexemes)
-	     - ncap * sizeof(*soa->kinds) % alignof(*soa->lexemes);
-	if (pad1 == alignof(*soa->lexemes))
+	pad1 = alignof(idx_t_) - ncap * sizeof(ast_kind_t_) % alignof(idx_t_);
+	if (pad1 == alignof(idx_t_))
 		pad1 = 0;
 
 	/* Ensure that soa->kids is properly aligned */
-	pad2 = alignof(*soa->kids)
-	     - (ncap * (sizeof(*soa->kinds) + sizeof(*soa->lexemes)) + pad1)
-	           % alignof(*soa->kids);
-	if (pad2 != alignof(*soa->kids))
+	pad2 = alignof(struct pair)
+	     - (ncap * (sizeof(ast_kind_t_) + sizeof(idx_t_)) + pad1)
+	           % alignof(struct pair);
+	if (pad2 == alignof(struct pair))
 		pad2 = 0;
 
 	newsz = ncap * AST_SOA_BLKSZ + pad1 + pad2;
