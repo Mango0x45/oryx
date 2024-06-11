@@ -10,14 +10,14 @@
 #include "errors.h"
 #include "parser.h"
 
-static size_t codegenstmt(LLVMBuilderRef, struct ast_soa, struct lexemes_soa,
+static size_t codegenstmt(LLVMBuilderRef, struct ast, struct lexemes,
                           size_t);
-static size_t codegenexpr(LLVMBuilderRef, struct ast_soa, struct lexemes_soa,
+static size_t codegenexpr(LLVMBuilderRef, struct ast, struct lexemes,
                           size_t, LLVMValueRef *)
 	__attribute__((nonnull));
 
 void
-codegen(struct ast_soa ast, struct lexemes_soa toks)
+codegen(struct ast ast, struct lexemes toks)
 {
 	LLVMModuleRef mod = LLVMModuleCreateWithName("oryx");
 
@@ -29,8 +29,7 @@ codegen(struct ast_soa ast, struct lexemes_soa toks)
 		if (ast.kinds[expr] != ASTFN)
 			assert(!"not implemented");
 
-		size_t proto = ast.kids[expr].lhs,
-		       body  = ast.kids[expr].rhs;
+		size_t proto = ast.kids[expr].lhs, body = ast.kids[expr].rhs;
 
 		LLVMTypeRef ret;
 		LLVMTypeRef params[] = {0};
@@ -46,7 +45,6 @@ codegen(struct ast_soa ast, struct lexemes_soa toks)
 				ret = LLVMInt64Type();
 			else
 				err("codegen: Unknown type: %.*s", (int)sv.len, sv.p);
-
 		}
 
 		LLVMTypeRef fnproto = LLVMFunctionType(ret, params, 0, false);
@@ -76,7 +74,7 @@ codegen(struct ast_soa ast, struct lexemes_soa toks)
 }
 
 size_t
-codegenstmt(LLVMBuilderRef builder, struct ast_soa ast, struct lexemes_soa toks,
+codegenstmt(LLVMBuilderRef builder, struct ast ast, struct lexemes toks,
             size_t i)
 {
 	switch (ast.kinds[i]) {
@@ -95,7 +93,7 @@ codegenstmt(LLVMBuilderRef builder, struct ast_soa ast, struct lexemes_soa toks,
 }
 
 size_t
-codegenexpr(LLVMBuilderRef builder, struct ast_soa ast, struct lexemes_soa toks,
+codegenexpr(LLVMBuilderRef builder, struct ast ast, struct lexemes toks,
             size_t i, LLVMValueRef *v)
 {
 	(void)builder;

@@ -39,9 +39,9 @@ enum {
 
 typedef uint8_t lexeme_kind_t_;
 
-#define LEXEMES_SOA_BLKSZ (sizeof(lexeme_kind_t_) + sizeof(struct strview))
+#define LEXEMES_BLKSZ (sizeof(lexeme_kind_t_) + sizeof(struct strview))
 
-struct lexemes_soa {
+struct lexemes {
 	lexeme_kind_t_ *kinds;
 	struct strview *strs;
 	size_t len, cap;
@@ -49,6 +49,6 @@ struct lexemes_soa {
 
 #define lexemes_free(x) free((x).kinds)
 
-struct lexemes_soa lexstring(const uchar *, size_t);
+struct lexemes lexstring(const uchar *, size_t);
 
 #endif /* !ORYX_LEXER_H */

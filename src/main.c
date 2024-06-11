@@ -24,8 +24,8 @@ main(int argc, char **argv)
 	size_t srclen;
 	char *src = readfile(argv[1], &srclen);
 
-	struct lexemes_soa toks = lexstring(src, srclen);
-	struct ast_soa ast = parsetoks(toks);
+	struct lexemes toks = lexstring(src, srclen);
+	struct ast ast = parsetoks(toks);
 	codegen(ast, toks);
 
 #if DEBUG

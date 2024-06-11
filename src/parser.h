@@ -51,7 +51,7 @@ typedef uint8_t ast_kind_t_;
 #define AST_EMPTY     ((idx_t_)-1)
 #define AST_SOA_BLKSZ (sizeof(ast_kind_t_) + sizeof(idx_t_) * 3)
 
-struct ast_soa {
+struct ast {
 	ast_kind_t_ *kinds;
 	idx_t_ *lexemes;
 	struct {
@@ -63,6 +63,6 @@ struct ast_soa {
 #define ast_free(x) free((x).kinds)
 
 /* Parse the tokens in TOKS into an abstract syntax tree */
-struct ast_soa parsetoks(struct lexemes_soa toks);
+struct ast parsetoks(struct lexemes toks);
 
 #endif /* !ORYX_PARSER_H */

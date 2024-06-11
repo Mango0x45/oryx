@@ -18,8 +18,8 @@
 
 static bool skip_comment(const uchar **, const uchar *);
 
-static struct lexemes_soa mk_lexemes_soa(void);
-static void lexemes_soa_resz(struct lexemes_soa *);
+static struct lexemes mklexemes(void);
+static void lexemesresz(struct lexemes *);
 
 static const bool is_numeric_lookup[UCHAR_MAX + 1] = {
 	['0'] = true, ['1'] = true, ['2'] = true,  ['3'] = true,
@@ -27,7 +27,7 @@ static const bool is_numeric_lookup[UCHAR_MAX + 1] = {
 	['8'] = true, ['9'] = true, ['\''] = true,
 };
 
-struct lexemes_soa
+struct lexemes
 lexstring(const uchar *code, size_t codesz)
 {
 #if ORYX_SIMD
@@ -42,7 +42,7 @@ lexstring(const uchar *code, size_t codesz)
 	}
 #endif
 
-	struct lexemes_soa data = mk_lexemes_soa();
+	struct lexemes data = mklexemes();
 
 	const uchar *start = code, *end = start + codesz;
 	while (likely(code < end)) {
@@ -118,11 +118,11 @@ lexstring(const uchar *code, size_t codesz)
 		}
 
 		if (unlikely(data.len == data.cap))
-			lexemes_soa_resz(&data);
+			lexemesresz(&data);
 	}
 
 	if (unlikely(data.len == data.cap))
-		lexemes_soa_resz(&data);
+		lexemesresz(&data);
 	data.kinds[data.len++] = LEXEOF;
 	return data;
 }
@@ -153,13 +153,13 @@ out:
 	return true;
 }
 
-struct lexemes_soa
-mk_lexemes_soa(void)
+struct lexemes
+mklexemes(void)
 {
-	struct lexemes_soa soa;
+	struct lexemes soa;
 
-	static_assert(offsetof(struct lexemes_soa, kinds)
-	                  < offsetof(struct lexemes_soa, strs),
+	static_assert(offsetof(struct lexemes, kinds)
+	                  < offsetof(struct lexemes, strs),
 	              "KINDS is not the first field before STRS");
 	static_assert(LEXEMES_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.strs)
 	                  == 0,
@@ -167,17 +167,17 @@ mk_lexemes_soa(void)
 
 	soa.len = 0;
 	soa.cap = LEXEMES_DFLT_CAP;
-	soa.kinds = bufalloc(NULL, soa.cap, LEXEMES_SOA_BLKSZ);
+	soa.kinds = bufalloc(NULL, soa.cap, LEXEMES_BLKSZ);
 	soa.strs = (void *)((char *)soa.kinds + soa.cap * sizeof(*soa.kinds));
 
 	return soa;
 }
 
 void
-lexemes_soa_resz(struct lexemes_soa *soa)
+lexemesresz(struct lexemes *soa)
 {
-	static_assert(offsetof(struct lexemes_soa, kinds)
-	                  < offsetof(struct lexemes_soa, strs),
+	static_assert(offsetof(struct lexemes, kinds)
+	                  < offsetof(struct lexemes, strs),
 	              "KINDS is not the first field before STRS");
 
 	size_t ncap, pad, newsz;
@@ -187,7 +187,7 @@ lexemes_soa_resz(struct lexemes_soa *soa)
 	   becomes pretty trivial */
 	if ((soa->cap >> (SIZE_WDTH - 1)) != 0) {
 		errno = EOVERFLOW;
-		err("lexemes_soa_resz:");
+		err("%s:", __func__);
 	}
 	ncap = soa->cap << 1;
 
@@ -197,7 +197,7 @@ lexemes_soa_resz(struct lexemes_soa *soa)
 	if (pad == alignof(*soa->strs))
 		pad = 0;
 
-	newsz = ncap * LEXEMES_SOA_BLKSZ + pad;
+	newsz = ncap * LEXEMES_BLKSZ + pad;
 
 	soa->kinds = bufalloc(soa->kinds, newsz, 1);
 	soa->strs = (void *)((char *)soa->kinds + ncap * sizeof(*soa->kinds) + pad);

@@ -14,7 +14,7 @@
 #define AST_DFLT_CAP (8)
 #define SIZE_WDTH    (sizeof(size_t) * CHAR_BIT)
 
-typedef idx_t_ parsefn(struct ast_soa *, struct lexemes_soa);
+typedef idx_t_ parsefn(struct ast *, struct lexemes);
 static parsefn parseblk,
                parsedecl,
                parseexpr,
@@ -22,16 +22,16 @@ static parsefn parseblk,
                parsestmt,
                parsetype;
 
-static idx_t_ ast_alloc(struct ast_soa *);
-static struct ast_soa mk_ast_soa(void);
-static void ast_soa_resz(struct ast_soa *);
+static idx_t_ astalloc(struct ast *);
+static struct ast mkast(void);
+static void astresz(struct ast *);
 
 static size_t toksidx;
 
-struct ast_soa
-parsetoks(struct lexemes_soa toks)
+struct ast
+parsetoks(struct lexemes toks)
 {
-	struct ast_soa ast = mk_ast_soa();
+	struct ast ast = mkast();
 
 	for (;;) {
 		parsedecl(&ast, toks);
@@ -43,9 +43,9 @@ parsetoks(struct lexemes_soa toks)
 }
 
 idx_t_
-parseblk(struct ast_soa *ast, struct lexemes_soa toks)
+parseblk(struct ast *ast, struct lexemes toks)
 {
-	idx_t_ i = ast_alloc(ast);
+	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTBLK;
 	ast->kids[i].lhs = ast->kids[i].rhs = AST_EMPTY;
@@ -64,9 +64,9 @@ parseblk(struct ast_soa *ast, struct lexemes_soa toks)
 }
 
 idx_t_
-parsedecl(struct ast_soa *ast, struct lexemes_soa toks)
+parsedecl(struct ast *ast, struct lexemes toks)
 {
-	idx_t_ i = ast_alloc(ast);
+	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 
 	if (toks.kinds[toksidx++] != LEXIDENT)
@@ -103,9 +103,9 @@ parsedecl(struct ast_soa *ast, struct lexemes_soa toks)
 }
 
 idx_t_
-parseexpr(struct ast_soa *ast, struct lexemes_soa toks)
+parseexpr(struct ast *ast, struct lexemes toks)
 {
-	idx_t_ i = ast_alloc(ast);
+	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 
 	switch (toks.kinds[toksidx]) {
@@ -126,9 +126,9 @@ parseexpr(struct ast_soa *ast, struct lexemes_soa toks)
 }
 
 idx_t_
-parseproto(struct ast_soa *ast, struct lexemes_soa toks)
+parseproto(struct ast *ast, struct lexemes toks)
 {
-	idx_t_ i = ast_alloc(ast);
+	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTFNPROTO;
 	ast->kids[i].lhs = AST_EMPTY;
@@ -145,7 +145,7 @@ parseproto(struct ast_soa *ast, struct lexemes_soa toks)
 }
 
 idx_t_
-parsestmt(struct ast_soa *ast, struct lexemes_soa toks)
+parsestmt(struct ast *ast, struct lexemes toks)
 {
 	idx_t_ i;
 
@@ -154,7 +154,7 @@ parsestmt(struct ast_soa *ast, struct lexemes_soa toks)
 
 	struct strview sv = toks.strs[toksidx];
 	if (strncmp("return", sv.p, sv.len) == 0) {
-		i = ast_alloc(ast);
+		i = astalloc(ast);
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;
 		if (toks.kinds[toksidx] != LEXSEMI)
@@ -172,9 +172,9 @@ parsestmt(struct ast_soa *ast, struct lexemes_soa toks)
 }
 
 idx_t_
-parsetype(struct ast_soa *ast, struct lexemes_soa toks)
+parsetype(struct ast *ast, struct lexemes toks)
 {
-	idx_t_ i = ast_alloc(ast);
+	idx_t_ i = astalloc(ast);
 	ast->kinds[i] = ASTTYPE;
 	ast->lexemes[i] = toksidx;
 
@@ -184,10 +184,10 @@ parsetype(struct ast_soa *ast, struct lexemes_soa toks)
 	return i;
 }
 
-struct ast_soa
-mk_ast_soa(void)
+struct ast
+mkast(void)
 {
-	struct ast_soa soa;
+	struct ast soa;
 
 	static_assert(AST_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.lexemes)
 	                  == 0,
@@ -208,7 +208,7 @@ mk_ast_soa(void)
 }
 
 void
-ast_soa_resz(struct ast_soa *soa)
+astresz(struct ast *soa)
 {
 	size_t ncap, pad1, pad2, newsz;
 	ptrdiff_t lexemes_off, kids_off;
@@ -220,7 +220,7 @@ ast_soa_resz(struct ast_soa *soa)
 	   becomes pretty trivial */
 	if ((soa->cap >> (SIZE_WDTH - 1)) != 0) {
 		errno = EOVERFLOW;
-		err("ast_soa_resz:");
+		err("%s:", __func__);
 	}
 	ncap = soa->cap << 1;
 
@@ -253,9 +253,9 @@ ast_soa_resz(struct ast_soa *soa)
 }
 
 idx_t_
-ast_alloc(struct ast_soa *soa)
+astalloc(struct ast *soa)
 {
 	if (soa->len == soa->cap)
-		ast_soa_resz(soa);
+		astresz(soa);
 	return soa->len++;
 }

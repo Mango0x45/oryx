@@ -4,6 +4,6 @@
 #include "lexer.h"
 #include "parser.h"
 
-void codegen(struct ast_soa ast, struct lexemes_soa toks);
+void codegen(struct ast ast, struct lexemes toks);
 
 #endif /* !ORYX_CODEGEN_H */
