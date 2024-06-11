@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "alloc.h"
 #include "codegen.h"
 #include "errors.h"
 #include "lexer.h"
@@ -46,9 +47,7 @@ readfile(const char *filename, size_t *n)
 	if (fstat(fd, &sb) == -1)
 		err("fstat: %s", filename);
 
-	char *p = malloc(sb.st_size + 4);
-	if (p == NULL)
-		err("malloc:");
+	char *p = bufalloc(NULL, sb.st_size + 4, 1);
 
 	ssize_t nr;
 	for (size_t off = 0; (nr = read(fd, p + off, sb.st_blksize)) > 0; off += nr)

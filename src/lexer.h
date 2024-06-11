@@ -7,6 +7,7 @@
 #include "types.h"
 
 enum {
+	LEXEOF,   /* End of token stream */
 	LEXIDENT, /* Identifier */
 	LEXNUM,   /* Numeric constant */
 

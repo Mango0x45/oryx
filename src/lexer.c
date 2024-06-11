@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "alloc.h"
 #include "errors.h"
 #include "lexer.h"
 #include "unicode.h"
@@ -120,6 +121,9 @@ lexstring(const uchar *code, size_t codesz)
 			lexemes_soa_resz(&data);
 	}
 
+	if (unlikely(data.len == data.cap))
+		lexemes_soa_resz(&data);
+	data.kinds[data.len++] = LEXEOF;
 	return data;
 }
 
@@ -163,9 +167,7 @@ mk_lexemes_soa(void)
 
 	soa.len = 0;
 	soa.cap = LEXEMES_DFLT_CAP;
-
-	if ((soa.kinds = malloc(soa.cap * LEXEMES_SOA_BLKSZ)) == NULL)
-		err("malloc:");
+	soa.kinds = bufalloc(NULL, soa.cap, LEXEMES_SOA_BLKSZ);
 	soa.strs = (void *)((char *)soa.kinds + soa.cap * sizeof(*soa.kinds));
 
 	return soa;
@@ -197,8 +199,7 @@ lexemes_soa_resz(struct lexemes_soa *soa)
 
 	newsz = ncap * LEXEMES_SOA_BLKSZ + pad;
 
-	if ((soa->kinds = realloc(soa->kinds, newsz)) == NULL)
-		err("realloc:");
+	soa->kinds = bufalloc(soa->kinds, newsz, 1);
 	soa->strs = (void *)((char *)soa->kinds + ncap * sizeof(*soa->kinds) + pad);
 	memmove(soa->strs, (char *)soa->kinds + off, soa->len * sizeof(*soa->strs));
 	soa->cap = ncap;

@@ -6,25 +6,27 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "alloc.h"
 #include "errors.h"
 #include "parser.h"
 
 /* #define AST_DFLT_CAP (2048) */
 #define AST_DFLT_CAP (8)
 #define AST_EMPTY    ((size_t)-1)
-#define AUX_DFLT_CAP (128)
 #define SIZE_WDTH    (sizeof(size_t) * CHAR_BIT)
 
-static size_t parsedecl(struct ast_soa *, struct lexemes_soa);
-static size_t parseexpr(struct ast_soa *, struct lexemes_soa);
-static size_t parsetype(struct ast_soa *, struct lexemes_soa);
+typedef size_t parsefn(struct ast_soa *, struct lexemes_soa);
+static parsefn parseblk,
+               parsedecl,
+               parseexpr,
+               parseproto,
+               parsestmt,
+               parsetype;
 
 static struct ast_soa mk_ast_soa(void);
 static void ast_soa_resz(struct ast_soa *);
 
-static size_t aux_push(struct auxilliary *, union extra);
-static size_t ast_soa_push(struct ast_soa *, ast_kind, size_t, size_t, size_t,
-                           size_t);
+static size_t ast_alloc(struct ast_soa *);
 
 static size_t toksidx;
 
@@ -33,85 +35,155 @@ parsetoks(struct lexemes_soa toks)
 {
 	struct ast_soa ast = mk_ast_soa();
 
-	while (toksidx < toks.len)
+	for (;;) {
 		parsedecl(&ast, toks);
+		if (toks.kinds[toksidx] == LEXEOF)
+			break;
+	}
 
 	return ast;
 }
 
 size_t
-parsedecl(struct ast_soa *ast, struct lexemes_soa toks)
+parseblk(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	bool constdecl;
-	size_t lexeme, lhs, rhs;
+	size_t i = ast_alloc(ast);
+	ast->lexemes[i] = toksidx;
+	ast->kinds[i] = ASTBLK;
+	ast->kids[i].lhs = ast->kids[i].rhs = AST_EMPTY;
 
-	lexeme = toksidx;
+	if (toks.kinds[toksidx++] != LEXLBRACE)
+		err("parser: Expected left brace");
 
-	if (toks.kinds[toksidx++] != LEXIDENT)
-		err("Expected identifier");
-	if (toks.kinds[toksidx++] != LEXCOLON)
-		err("Expected colon");
-
-	switch (toks.kinds[toksidx]) {
-	case LEXCOLON:
-	case LEXEQ:
-		constdecl = toks.kinds[toksidx++] == LEXCOLON;
-		lhs = AST_EMPTY;
-		rhs = parseexpr(ast, toks);
-		break;
-	default:
-		lhs = parsetype(ast, toks);
-		if (toks.kinds[toksidx] == LEXCOLON || toks.kinds[toksidx] == LEXEQ) {
-			constdecl = toks.kinds[toksidx++] == LEXEQ;
-			rhs = parseexpr(ast, toks);
-		} else {
-			constdecl = false;
-			rhs = AST_EMPTY;
-		}
-		break;
+	while (toks.kinds[toksidx] != LEXRBRACE) {
+		ast->kids[i].rhs = parsestmt(ast, toks);
+		if (ast->kids[i].lhs == AST_EMPTY)
+			ast->kids[i].lhs = ast->kids[i].rhs;
 	}
 
-	if (toks.kinds[toksidx++] != LEXSEMI)
-		err("Expected semicolon");
+	toksidx++; /* Eat rbrace */
+	return i;
+}
 
-	size_t extra = aux_push(&ast->aux, (union extra){.constdecl = constdecl});
-	return ast_soa_push(ast, PRSDECL, lexeme, lhs, rhs, extra);
+size_t
+parsedecl(struct ast_soa *ast, struct lexemes_soa toks)
+{
+	size_t i = ast_alloc(ast);
+	ast->lexemes[i] = toksidx;
+
+	if (toks.kinds[toksidx++] != LEXIDENT)
+		err("parser: Expected identifier");
+	if (toks.kinds[toksidx++] != LEXCOLON)
+		err("parser: Expected colon");
+
+	ast->kids[i].lhs = toks.kinds[toksidx] == LEXIDENT
+	                 ? parsetype(ast, toks)
+	                 : AST_EMPTY;
+
+	switch (toks.kinds[toksidx++]) {
+	case LEXSEMI:
+		if (ast->kids[i].lhs == AST_EMPTY)
+			err("parser: No type provided in non-assigning declaration");
+		ast->kinds[i] = ASTDECL;
+		ast->kids[i].rhs = AST_EMPTY;
+		return i;
+	case LEXCOLON:
+		ast->kinds[i] = ASTCDECL;
+		break;
+	case LEXEQ:
+		ast->kinds[i] = ASTDECL;
+		break;
+	default:
+		err("parser: Expected semicolon or equals");
+	}
+
+	ast->kids[i].rhs = parseexpr(ast, toks);
+	if (toks.kinds[toksidx++] != LEXSEMI)
+		err("parser: Expected semicolon");
+
+	return i;
 }
 
 size_t
 parseexpr(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	ast_kind kind;
-	size_t lexeme, lhs, rhs, extra;
-
-	lexeme = lhs = rhs = extra = AST_EMPTY;
+	size_t i = ast_alloc(ast);
+	ast->lexemes[i] = toksidx;
 
 	switch (toks.kinds[toksidx]) {
 	case LEXNUM:
-		kind = PRSNUMERIC;
-		lexeme = toksidx++;
+		toksidx++;
+		ast->kinds[i] = ASTNUMLIT;
+		break;
+	case LEXLPAR:
+		ast->kinds[i] = ASTFN;
+		ast->kids[i].lhs = parseproto(ast, toks);
+		ast->kids[i].rhs = parseblk(ast, toks);
 		break;
 	default:
-		err("Expected expression");
+		err("parser: Expected expression");
 	}
 
-	return ast_soa_push(ast, kind, lexeme, lhs, rhs, extra);
+	return i;
+}
+
+size_t
+parseproto(struct ast_soa *ast, struct lexemes_soa toks)
+{
+	size_t i = ast_alloc(ast);
+	ast->lexemes[i] = toksidx;
+	ast->kinds[i] = ASTFNPROTO;
+	ast->kids[i].lhs = AST_EMPTY;
+
+	if (toks.kinds[toksidx++] != LEXLPAR)
+		err("parser: Expected left parenthesis");
+	if (toks.kinds[toksidx++] != LEXRPAR)
+		err("parser: Expected right parenthesis");
+
+	ast->kids[i].rhs = toks.kinds[toksidx] == LEXIDENT
+	                 ? parsetype(ast, toks)
+	                 : AST_EMPTY;
+	return i;
+}
+
+size_t
+parsestmt(struct ast_soa *ast, struct lexemes_soa toks)
+{
+	size_t i;
+
+	if (toks.kinds[toksidx] != LEXIDENT)
+		err("parser: Expected identifier");
+
+	struct strview sv = toks.strs[toksidx];
+	if (strncmp("return", sv.p, sv.len) == 0) {
+		i = ast_alloc(ast);
+		ast->lexemes[i] = toksidx++;
+		ast->kinds[i] = ASTRET;
+		if (toks.kinds[toksidx] != LEXSEMI)
+			ast->kids[i].rhs = parseexpr(ast, toks);
+		else
+			ast->kids[i].rhs = AST_EMPTY;
+		if (toks.kinds[toksidx++] != LEXSEMI)
+			err("parser: Expected semicolon");
+	} else if (toks.kinds[toksidx + 1] == LEXCOLON)
+		i = parsedecl(ast, toks);
+	else
+		i = parseexpr(ast, toks);
+
+	return i;
 }
 
 size_t
 parsetype(struct ast_soa *ast, struct lexemes_soa toks)
 {
-	size_t lexeme;
+	size_t i = ast_alloc(ast);
+	ast->kinds[i] = ASTTYPE;
+	ast->lexemes[i] = toksidx;
 
-	switch (toks.kinds[toksidx]) {
-	case LEXIDENT:
-		lexeme = toksidx++;
-		break;
-	default:
-		err("Expected type");
-	}
+	if (toks.kinds[toksidx++] != LEXIDENT)
+		err("parser: Expected type");
 
-	return ast_soa_push(ast, PRSTYPE, lexeme, AST_EMPTY, AST_EMPTY, AST_EMPTY);
+	return i;
 }
 
 struct ast_soa
@@ -126,26 +198,13 @@ mk_ast_soa(void)
 	                      % alignof(*soa.kids)
 	                  == 0,
 	              "Additional padding is required to properly align KIDS");
-	static_assert(AST_DFLT_CAP
-	                      * (sizeof(*soa.kinds) + sizeof(*soa.lexemes)
-	                         + sizeof(*soa.kids))
-	                      % alignof(*soa.extra)
-	                  == 0,
-	              "Additional padding is required to properly align EXTRA");
 
 	soa.len = 0;
 	soa.cap = AST_DFLT_CAP;
-	soa.aux.len = 0;
-	soa.aux.cap = AUX_DFLT_CAP;
 
-	if ((soa.kinds = malloc(soa.cap * AST_SOA_BLKSZ)) == NULL)
-		err("malloc:");
+	soa.kinds = bufalloc(NULL, soa.cap, AST_SOA_BLKSZ);
 	soa.lexemes = (void *)((char *)soa.kinds + soa.cap * sizeof(*soa.kinds));
 	soa.kids = (void *)((char *)soa.lexemes + soa.cap * sizeof(*soa.lexemes));
-	soa.extra = (void *)((char *)soa.kids + soa.cap * sizeof(*soa.kids));
-
-	if ((soa.aux.buf = malloc(soa.aux.cap * sizeof(*soa.aux.buf))) == NULL)
-		err("malloc:");
 
 	return soa;
 }
@@ -153,12 +212,11 @@ mk_ast_soa(void)
 void
 ast_soa_resz(struct ast_soa *soa)
 {
-	size_t ncap, pad1, pad2, pad3, newsz;
-	ptrdiff_t lexemes_off, kids_off, extra_off;
+	size_t ncap, pad1, pad2, newsz;
+	ptrdiff_t lexemes_off, kids_off;
 
 	lexemes_off = (char *)soa->lexemes - (char *)soa->kinds;
 	kids_off = (char *)soa->kids - (char *)soa->kinds;
-	extra_off = (char *)soa->extra - (char *)soa->kinds;
 
 	/* The capacity is always going to be a power of 2, so checking for overflow
 	   becomes pretty trivial */
@@ -181,28 +239,13 @@ ast_soa_resz(struct ast_soa *soa)
 	if (pad2 != alignof(*soa->kids))
 		pad2 = 0;
 
-	/* Ensure that soa->extra is properly aligned */
-	pad3 = alignof(*soa->extra)
-	     - (ncap
-	            * (sizeof(*soa->kinds) + sizeof(*soa->lexemes)
-	               + sizeof(*soa->kids))
-	        + pad1 + pad2)
-	           % alignof(*soa->extra);
-	if (pad3 != alignof(*soa->extra))
-		pad3 = 0;
-
-	newsz = ncap * AST_SOA_BLKSZ + pad1 + pad2 + pad3;
-	if ((soa->kinds = realloc(soa->kinds, newsz)) == NULL)
-		err("realloc:");
-
+	newsz = ncap * AST_SOA_BLKSZ + pad1 + pad2;
+	soa->kinds = bufalloc(soa->kinds, newsz, 1);
 	soa->lexemes = (void *)((char *)soa->kinds + ncap * sizeof(*soa->kinds)
 	                        + pad1);
 	soa->kids = (void *)((char *)soa->lexemes + ncap * sizeof(*soa->lexemes)
 	                     + pad2);
-	soa->extra = (void *)((char *)soa->kids + ncap * sizeof(*soa->kids) + pad3);
 
-	memmove(soa->extra, (char *)soa->kinds + extra_off,
-	        soa->len * sizeof(*soa->extra));
 	memmove(soa->kids, (char *)soa->kinds + kids_off,
 	        soa->len * sizeof(*soa->kids));
 	memmove(soa->lexemes, (char *)soa->kinds + lexemes_off,
@@ -212,29 +255,23 @@ ast_soa_resz(struct ast_soa *soa)
 }
 
 size_t
-aux_push(struct auxilliary *aux, union extra e)
-{
-	if (aux->len == aux->cap) {
-		size_t ncap = aux->cap * 2;
-		if ((aux->buf = realloc(aux->buf, ncap)) == NULL)
-			err("realloc:");
-		aux->cap = ncap;
-	}
-	aux->buf[aux->len] = e;
-	return aux->len++;
-}
-
-size_t
-ast_soa_push(struct ast_soa *soa, ast_kind kind, size_t lexeme, size_t lhs,
-             size_t rhs, size_t extra)
+ast_alloc(struct ast_soa *soa)
 {
 	if (soa->len == soa->cap)
 		ast_soa_resz(soa);
-
-	soa->kinds[soa->len] = kind;
-	soa->lexemes[soa->len] = lexeme;
-	soa->kids[soa->len].lhs = lhs;
-	soa->kids[soa->len].rhs = rhs;
-	soa->extra[soa->len] = extra;
 	return soa->len++;
 }
+
+/* size_t */
+/* ast_soa_push(struct ast_soa *soa, ast_kind kind, size_t lexeme, size_t lhs, */
+/*              size_t rhs) */
+/* { */
+/* 	if (soa->len == soa->cap) */
+/* 		ast_soa_resz(soa); */
+/**/
+/* 	soa->kinds[soa->len] = kind; */
+/* 	soa->lexemes[soa->len] = lexeme; */
+/* 	soa->kids[soa->len].lhs = lhs; */
+/* 	soa->kids[soa->len].rhs = rhs; */
+/* 	return soa->len++; */
+/* } */
