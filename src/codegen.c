@@ -74,6 +74,7 @@ codegen(struct ast ast, struct lexemes toks)
 	LLVMDisposeMessage(error);
 
 	LLVMDumpModule(mod);
+	LLVMDisposeModule(mod);
 }
 
 size_t
