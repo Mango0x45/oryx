@@ -34,15 +34,22 @@ static char *cflags_all[] = {
 };
 
 static char *cflags_dbg[] = {
-	"-DDEBUG=1", "-fsanitize=address,undefined", "-g3", "-ggdb3", "-O0",
+	"-DDEBUG=1",
+	"-g3",
+	"-ggdb3",
+	"-O0",
 };
 
 static char *cflags_rls[] = {
-	"-DNDEBUG=1", "-flto", "-march=native", "-mtune=native", "-O3",
+	"-DNDEBUG=1",
+	"-flto",
+	"-march=native",
+	"-mtune=native",
+	"-O3",
 };
 
 static char *argv0;
-static bool fflag, rflag;
+static bool fflag, rflag, Sflag;
 static int simd_flags;
 
 static void cc(void *);
@@ -55,7 +62,7 @@ static void
 usage(void)
 {
 	fprintf(stderr,
-	        "Usage: %s [-fr]\n"
+	        "Usage: %s [-frS]\n"
 	        "       %s clean\n",
 	        argv0, argv0);
 	exit(EXIT_FAILURE);
@@ -70,13 +77,16 @@ main(int argc, char **argv)
 	argv0 = argv[0];
 
 	int opt;
-	while ((opt = getopt(argc, argv, "fr")) != -1) {
+	while ((opt = getopt(argc, argv, "frS")) != -1) {
 		switch (opt) {
 		case 'f':
 			fflag = true;
 			break;
 		case 'r':
 			rflag = true;
+			break;
+		case 'S':
+			Sflag = true;
 			break;
 		default:
 			usage();
@@ -143,6 +153,8 @@ cc(void *arg)
 		strspushenv(&cmd, "CFLAGS", cflags_rls, lengthof(cflags_rls));
 	else
 		strspushenv(&cmd, "CFLAGS", cflags_dbg, lengthof(cflags_dbg));
+	if (!rflag && !Sflag)
+		strspushl(&cmd, "-fsanitize=address,undefined");
 	if (simd_flags != 0)
 		strspushl(&cmd, "-DORYX_SIMD=1");
 	if (strcmp(arg, "src/codegen.c") == 0)
@@ -169,6 +181,8 @@ ld(void)
 		strspushenv(&cmd, "CFLAGS", cflags_rls, lengthof(cflags_rls));
 	else
 		strspushenv(&cmd, "CFLAGS", cflags_dbg, lengthof(cflags_dbg));
+	if (!rflag && !Sflag)
+		strspushl(&cmd, "-fsanitize=address,undefined");
 	llvmquery(&cmd, LLVM_LDFLAGS | LLVM_LIBS);
 	strspushl(&cmd, "-o", TARGET);
 
