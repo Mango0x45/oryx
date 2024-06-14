@@ -52,11 +52,14 @@ parseblk(struct ast *ast, struct lexemes toks)
 	if (toks.kinds[toksidx++] != LEXLBRACE)
 		err("parser: Expected left brace");
 
+	if (toks.kinds[toksidx] != LEXRBRACE) {
+		idx_t_ stmt = parsestmt(ast, toks);
+		ast->kids[i].lhs = ast->kids[i].rhs = stmt;
+	}
+
 	while (toks.kinds[toksidx] != LEXRBRACE) {
 		idx_t_ stmt = parsestmt(ast, toks);
 		ast->kids[i].rhs = stmt;
-		if (ast->kids[i].lhs == AST_EMPTY)
-			ast->kids[i].lhs = ast->kids[i].rhs;
 	}
 
 	toksidx++; /* Eat rbrace */
