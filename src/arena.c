@@ -10,9 +10,9 @@
 #include "common.h"
 #include "errors.h"
 
-/* TODO: Support implementations without MAP_ANON? */
+/* TODO: Support malloc() backend for systems without MAP_ANON */
 #ifndef MAP_ANON
-static_assert(NULL, "MAP_ANON not available on this system");
+#	error "System not supported (missing MAP_ANON)"
 #endif
 
 #if DEBUG
