@@ -49,7 +49,7 @@ enum {
 	   ‘lhs - rhs’ */
 	ASTBINSUB = '-',
 
-	_AST_LAST_ENT = 256,
+	_AST_LAST_ENT,
 };
 
 typedef uint8_t ast_kind_t_;
