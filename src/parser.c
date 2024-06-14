@@ -114,6 +114,10 @@ parseexpr(struct ast *ast, struct lexemes toks)
 		toksidx++;
 		ast->kinds[i] = ASTNUMLIT;
 		break;
+	case LEXIDENT:
+		toksidx++;
+		ast->kinds[i] = ASTIDENT;
+		break;
 	case LEXLPAR:
 		ast->kinds[i] = ASTFN;
 		idx_t_ lhs = parseproto(ast, toks);

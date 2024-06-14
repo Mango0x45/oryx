@@ -28,6 +28,9 @@ enum {
 	/* Braced block, sublist[lhs…rhs] */
 	ASTBLK,
 
+	/* Identifier literal */
+	ASTIDENT,
+
 	/* Numeric literal */
 	ASTNUMLIT,
 
