@@ -5,6 +5,7 @@
 
 #include "common.h"
 
-noreturn void err(const char *, ...) __attribute__((format(printf, 1, 2)));
+noreturn void err(const char *, ...)
+	__attribute__((format(printf, 1, 2)));
 
 #endif /* !ORYX_ERRORS_H */

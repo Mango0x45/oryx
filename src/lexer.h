@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "common.h"
 #include "types.h"
 
 enum {
@@ -54,6 +55,7 @@ struct lexemes {
 
 #define lexemes_free(x) free((x).kinds)
 
-struct lexemes lexstring(const uchar *, size_t);
+struct lexemes lexstring(const uchar *, size_t)
+	__attribute__((nonnull));
 
 #endif /* !ORYX_LEXER_H */

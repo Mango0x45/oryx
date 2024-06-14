@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "alloc.h"
+#include "common.h"
 #include "errors.h"
 
 /* TODO: Support implementations without MAP_ANON? */
@@ -29,8 +30,10 @@ struct _arena {
 	struct _arena *next;
 };
 
-static struct _arena *mkblk(size_t) __attribute__((returns_nonnull));
-static inline size_t pad(size_t, size_t) __attribute__((const, always_inline));
+static struct _arena *mkblk(size_t)
+	__attribute__((returns_nonnull));
+static inline size_t pad(size_t, size_t)
+	__attribute__((const, always_inline));
 
 void *
 arena_alloc(struct _arena **a, size_t nmemb, size_t size, size_t align)

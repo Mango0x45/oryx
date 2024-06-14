@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "alloc.h"
+#include "common.h"
 #include "errors.h"
 #include "lexer.h"
 #include "unicode.h"

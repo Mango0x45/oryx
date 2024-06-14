@@ -7,11 +7,13 @@
 
 #include "alloc.h"
 #include "codegen.h"
+#include "common.h"
 #include "errors.h"
 #include "lexer.h"
 #include "parser.h"
 
-static char *readfile(const char *, size_t *);
+static char *readfile(const char *, size_t *)
+	__attribute__((returns_nonnull, nonnull));
 
 int
 main(int argc, char **argv)
