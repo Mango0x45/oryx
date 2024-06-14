@@ -53,6 +53,7 @@ static bool fflag, rflag, Sflag;
 static int simd_flags;
 
 static void cc(void *);
+static void gperf(void *);
 static void ld(void);
 static bool tagvalid(const char *);
 static void ckd_cpu_flags(void);
@@ -101,7 +102,7 @@ main(int argc, char **argv)
 	if (argc > 0) {
 		if (strcmp("clean", *argv) == 0) {
 			strspushl(&cmd, "find", ".", "-name", TARGET, "-or", "-name", "*.o",
-			          "-delete");
+			          "-or", "-name", "*.gen.c", "-delete");
 			cmdput(cmd);
 			cmdexec(cmd);
 		} else {
@@ -114,15 +115,23 @@ main(int argc, char **argv)
 
 	ckd_cpu_flags();
 
-	glob_t g;
-	assert(glob("src/*.c", 0, globerr, &g) == 0);
-
 	int procs = nproc();
 	if (procs == -1)
 		procs = 8;
 
 	tpool tp;
 	tpinit(&tp, procs);
+
+	glob_t g;
+	assert(glob("src/*.gperf", 0, globerr, &g) == 0);
+
+	for (size_t i = 0; i < g.gl_pathc; i++)
+		tpenq(&tp, gperf, g.gl_pathv[i], NULL);
+	tpwait(&tp);
+
+	globfree(&g);
+	assert(glob("src/*.c", 0, globerr, &g) == 0);
+
 	for (size_t i = 0; i < g.gl_pathc; i++)
 		tpenq(&tp, cc, g.gl_pathv[i], NULL);
 	tpwait(&tp);
@@ -160,6 +169,24 @@ cc(void *arg)
 	if (strcmp(arg, "src/codegen.c") == 0)
 		llvmquery(&cmd, LLVM_CFLAGS);
 	strspushl(&cmd, "-o", dst, "-c", src);
+
+	cmdput(cmd);
+	cmdexec(cmd);
+	strsfree(&cmd);
+out:
+	free(dst);
+}
+
+void
+gperf(void *arg)
+{
+	struct strs cmd = {0};
+	char *dst = swpext(arg, "gen.c"), *src = arg;
+
+	if (!fflag && !foutdatedl(dst, src))
+		goto out;
+
+	strspushl(&cmd, "gperf", src, "--output-file", dst);
 
 	cmdput(cmd);
 	cmdexec(cmd);
