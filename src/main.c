@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "alloc.h"
+#include "analyzer.h"
 #include "codegen.h"
 #include "common.h"
 #include "errors.h"
@@ -28,6 +29,7 @@ main(int argc, char **argv)
 
 	struct lexemes toks = lexstring(src, srclen);
 	struct ast ast = parsetoks(toks);
+	analyzeast(ast, toks);
 	codegen(ast, toks);
 
 #if DEBUG

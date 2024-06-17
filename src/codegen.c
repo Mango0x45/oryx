@@ -20,6 +20,7 @@ static size_t codegenexpr(LLVMBuilderRef, struct ast, struct lexemes,
 void
 codegen(struct ast ast, struct lexemes toks)
 {
+	exit(EXIT_SUCCESS);
 	LLVMModuleRef mod = LLVMModuleCreateWithName("oryx");
 
 	for (size_t i = 0; i < ast.len;) {

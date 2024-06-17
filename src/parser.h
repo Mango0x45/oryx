@@ -14,7 +14,7 @@ enum {
 	   ‘x: lhs = rhs’ */
 	ASTDECL,
 
-	/* Constant declaration, lhs and rhs may be unused
+	/* Constant declaration, lhs may be unused
 	   ‘x: lhs : rhs’ */
 	ASTCDECL,
 

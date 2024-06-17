@@ -16,8 +16,12 @@ void *bufalloc(void *ptr, size_t nmemb, size_t size)
 /* Allocate a buffer of NMEMB elements of size SIZE with alignment ALIGN using
    the arena-allocator A. */
 void *arena_alloc(arena *a, size_t nmemb, size_t size, size_t align)
-	__attribute__((returns_nonnull, warn_unused_result, malloc,
+	__attribute__((returns_nonnull, nonnull, warn_unused_result, malloc,
                    alloc_size(2, 3), alloc_align(4)));
+
+void *_arena_grow(arena *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
+                  size_t size, size_t align)
+	__attribute__((returns_nonnull, nonnull, warn_unused_result));
 
 /* Deallocate all memory associated with the arena A. */
 void arena_free(arena *a)
@@ -25,5 +29,8 @@ void arena_free(arena *a)
 
 /* Allocate a buffer of N elements of type T using the arena-allocator A. */
 #define arena_new(a, T, n) ((T *)arena_alloc((a), (n), sizeof(T), alignof(T)))
+
+#define arena_grow(a, p, T, on, nn)                                            \
+	((T *)_arena_grow((a), (p), (on), (nn), sizeof(T), alignof(T)))
 
 #endif /* !ORYX_ALLOC_H */
