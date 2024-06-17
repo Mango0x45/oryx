@@ -10,6 +10,7 @@
 #include "common.h"
 #include "errors.h"
 #include "parser.h"
+#include "types.h"
 
 static size_t codegenstmt(LLVMBuilderRef, struct ast, struct lexemes,
                           size_t);
@@ -24,48 +25,64 @@ codegen(struct ast ast, struct lexemes toks)
 	LLVMBuilderRef builder = LLVMCreateBuilder();
 
 	for (size_t i = 0; i < ast.len;) {
-		if (ast.kinds[i] != ASTCDECL)
-			err("codegen: Expected constant declaration");
+		switch (ast.kinds[i]) {
+		case ASTDECL: {
+			/* TODO: Temporary allocator */
+			struct strview sv = toks.strs[ast.lexemes[i]];
+			char *name = bufalloc(NULL, sv.len + 1, 1);
+			((uchar *)memcpy(name, sv.p, sv.len))[sv.len] = 0;
 
-		size_t expr = ast.kids[i].rhs;
-		if (ast.kinds[expr] != ASTFN) {
-			assert(!"not implemented");
-			__builtin_unreachable();
+			LLVMValueRef globl, val;
+			globl = LLVMAddGlobal(mod, LLVMInt64Type(), name);
+			i = codegenexpr(builder, ast, toks, ast.kids[i].rhs, &val);
+			LLVMSetInitializer(globl, val);
+			free(name);
+			break;
 		}
+		case ASTCDECL: {
+			idx_t_ expr = ast.kids[i].rhs;
+			if (ast.kinds[expr] != ASTFN) {
+				assert(!"not implemented");
+				__builtin_unreachable();
+			}
 
-		size_t proto = ast.kids[expr].lhs, body = ast.kids[expr].rhs;
+			idx_t_ proto = ast.kids[expr].lhs, body = ast.kids[expr].rhs;
 
-		LLVMTypeRef ret;
-		LLVMTypeRef params[] = {0};
+			LLVMTypeRef ret;
+			LLVMTypeRef params[] = {0};
 
-		if (ast.kids[proto].rhs == AST_EMPTY)
-			ret = LLVMVoidType();
-		else {
-			size_t type = ast.kids[proto].rhs;
-			struct strview sv = toks.strs[ast.lexemes[type]];
+			if (ast.kids[proto].rhs == AST_EMPTY)
+				ret = LLVMVoidType();
+			else {
+				size_t type = ast.kids[proto].rhs;
+				struct strview sv = toks.strs[ast.lexemes[type]];
 
-			/* TODO: Make int 32bit on 32bit platforms */
-			if (strncmp("int", sv.p, sv.len) == 0)
-				ret = LLVMInt64Type();
-			else
-				err("codegen: Unknown type: %.*s", (int)sv.len, sv.p);
+				/* TODO: Make int 32bit on 32bit platforms */
+				if (strncmp("int", sv.p, sv.len) == 0)
+					ret = LLVMInt64Type();
+				else
+					err("codegen: Unknown type: %.*s", (int)sv.len, sv.p);
+			}
+
+			LLVMTypeRef fnproto = LLVMFunctionType(ret, params, 0, false);
+
+			struct strview sv = toks.strs[ast.lexemes[i]];
+			char *fnname = bufalloc(NULL, sv.len + 1, 1);
+			((char *)memcpy(fnname, sv.p, sv.len))[sv.len] = 0;
+
+			LLVMValueRef fn = LLVMAddFunction(mod, fnname, fnproto);
+			LLVMBasicBlockRef entry = LLVMAppendBasicBlock(fn, "entry");
+			LLVMPositionBuilderAtEnd(builder, entry);
+
+			free(fnname);
+
+			for (i = ast.kids[body].lhs; i <= ast.kids[body].rhs;)
+				i = codegenstmt(builder, ast, toks, i);
+			break;
 		}
-
-		LLVMTypeRef fnproto = LLVMFunctionType(ret, params, 0, false);
-
-		struct strview sv = toks.strs[ast.lexemes[i]];
-		char *fnname = bufalloc(NULL, sv.len + 1, 1);
-		((char *)memcpy(fnname, sv.p, sv.len))[sv.len] = 0;
-
-		LLVMValueRef fn = LLVMAddFunction(mod, fnname, fnproto);
-		LLVMBasicBlockRef entry = LLVMAppendBasicBlock(fn, "entry");
-		LLVMPositionBuilderAtEnd(builder, entry);
-
-		free(fnname);
-
-		for (i = ast.kids[body].lhs; i <= ast.kids[body].rhs;)
-			i = codegenstmt(builder, ast, toks, i);
-
+		default:
+			err("codegen: Expected declaration");
+		}
 	}
 
 	LLVMDisposeBuilder(builder);
