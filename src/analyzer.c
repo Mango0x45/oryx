@@ -29,9 +29,18 @@ struct environs {
 static struct environ *create_environments(struct ast, struct lexemes,
                                            struct environs *, idx_t_, idx_t_,
                                            arena *)
-	__attribute__((nonnull));
+	__attribute__((returns_nonnull, nonnull));
 static void typecheck_environment(struct environs, struct ast, struct lexemes,
                                   idx_t_);
+static struct type typecheck_constdecl(struct environs, struct ast,
+                                       struct lexemes, idx_t_, idx_t_);
+static struct type typecheck_expr(struct environs, struct ast, struct lexemes,
+                                  idx_t_, idx_t_);
+static struct type typecheck_fn(struct environs, struct ast, struct lexemes,
+                                idx_t_, idx_t_);
+static const struct type *typegrab(struct ast, struct lexemes, idx_t_)
+	__attribute__((returns_nonnull));
+static bool typecompat(struct type, struct type);
 
 /* Defined in primitives.gperf */
 const struct type *typelookup(const uchar *, size_t)
@@ -104,13 +113,6 @@ create_environments(struct ast ast, struct lexemes toks, struct environs *evs,
 	return ev;
 }
 
-static struct type typegrab(struct ast, struct lexemes, idx_t_);
-static struct type typecheck_constdecl(struct environs, struct ast,
-                                       struct lexemes, idx_t_, idx_t_);
-static struct type typecheck_expr(struct environs, struct ast, struct lexemes,
-                                  idx_t_, idx_t_);
-static bool typecompat(struct type, struct type);
-
 void
 typecheck_environment(struct environs evs, struct ast ast, struct lexemes toks,
                       idx_t_ i)
@@ -120,14 +122,14 @@ typecheck_environment(struct environs evs, struct ast ast, struct lexemes toks,
 		typecheck_constdecl(evs, ast, toks, j, i);
 }
 
-struct type
+const struct type *
 typegrab(struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	struct strview sv = toks.strs[ast.lexemes[i]];
 	const struct type *tp = typelookup(sv.p, sv.len);
 	if (tp == NULL)
 		err("analyzer: Unknown type ‘%.*s’", (int)sv.len, sv.p);
-	return *tp;
+	return tp;
 }
 
 struct type
@@ -147,7 +149,7 @@ typecheck_constdecl(struct environs evs, struct ast ast, struct lexemes toks,
 	assert(p.rhs != AST_EMPTY);
 
 	if (p.lhs != AST_EMPTY)
-		ltype = typegrab(ast, toks, p.lhs);
+		ltype = *typegrab(ast, toks, p.lhs);
 	rtype = typecheck_expr(evs, ast, toks, p.rhs, evi);
 
 	if (ltype.kind == TYPE_UNSET)
@@ -187,16 +189,36 @@ typecheck_expr(struct environs evs, struct ast ast, struct lexemes toks,
 		}
 	}
 	case ASTFN:
-		assert(!"not implemented");
+		return typecheck_fn(evs, ast, toks, i, evi);
 	default:
 		err("analyzer: Unexpected AST kind %u", ast.kinds[i]);
 		__builtin_unreachable();
 	}
 }
 
+struct type
+typecheck_fn(struct environs evs, struct ast ast, struct lexemes toks,
+             idx_t_ i, idx_t_ evi)
+{
+	struct type t = {.kind = TYPE_FN};
+	struct pair p = ast.kids[i];
+
+	idx_t_ proto = p.lhs;
+	if (ast.kids[proto].rhs == AST_EMPTY)
+		return t;
+
+	t.ret = typegrab(ast, toks, ast.kids[proto].rhs);
+	return t;
+
+	/* TODO: Typecheck function body */
+}
+
 bool
 typecompat(struct type lhs, struct type rhs)
 {
+	if (rhs.kind == TYPE_FN)
+		return lhs.ret == rhs.ret;
+
 	if (lhs.kind == rhs.kind)
 		return true;
 
