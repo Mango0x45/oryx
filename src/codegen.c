@@ -20,8 +20,8 @@ static size_t codegenexpr(LLVMBuilderRef, struct ast, struct lexemes,
 void
 codegen(struct ast ast, struct lexemes toks)
 {
-	exit(EXIT_SUCCESS);
 	LLVMModuleRef mod = LLVMModuleCreateWithName("oryx");
+	LLVMBuilderRef builder = LLVMCreateBuilder();
 
 	for (size_t i = 0; i < ast.len;) {
 		if (ast.kinds[i] != ASTCDECL)
@@ -59,7 +59,6 @@ codegen(struct ast ast, struct lexemes toks)
 
 		LLVMValueRef fn = LLVMAddFunction(mod, fnname, fnproto);
 		LLVMBasicBlockRef entry = LLVMAppendBasicBlock(fn, "entry");
-		LLVMBuilderRef builder = LLVMCreateBuilder();
 		LLVMPositionBuilderAtEnd(builder, entry);
 
 		free(fnname);
@@ -67,8 +66,9 @@ codegen(struct ast ast, struct lexemes toks)
 		for (i = ast.kids[body].lhs; i <= ast.kids[body].rhs;)
 			i = codegenstmt(builder, ast, toks, i);
 
-		LLVMDisposeBuilder(builder);
 	}
+
+	LLVMDisposeBuilder(builder);
 
 	char *error = NULL;
 	LLVMVerifyModule(mod, LLVMAbortProcessAction, &error);
