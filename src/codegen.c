@@ -13,7 +13,8 @@
 #include "types.h"
 
 static size_t codegenstmt(LLVMBuilderRef, LLVMValueRef *, struct ast,
-                          struct lexemes, size_t);
+                          struct lexemes, size_t)
+	__attribute__((nonnull));
 static size_t codegenexpr(LLVMBuilderRef, LLVMValueRef *, struct ast,
                           struct lexemes, size_t, LLVMValueRef *)
 	__attribute__((nonnull));
