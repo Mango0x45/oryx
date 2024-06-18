@@ -85,10 +85,13 @@ fwdnode(struct ast ast, idx_t_ i)
 			i = ast.kids[i].lhs == AST_EMPTY ? i + 1 : ast.kids[i].rhs;
 			break;
 		case ASTDECL:
+			i = ast.kids[i].rhs == AST_EMPTY ? ast.kids[i].lhs
+			                                 : ast.kids[i].rhs;
+			break;
 		case ASTRET:
 			if (ast.kids[i].rhs == AST_EMPTY)
 				return i + 1;
-			i++;
+			i = ast.kids[i].rhs;
 			break;
 		case ASTBINADD:
 		case ASTBINSUB:
@@ -159,12 +162,17 @@ typechkdecl(struct typechkctx ctx, struct evstack evs, struct type *types,
 	struct type ltype, rtype;
 	ltype.kind = TYPE_UNSET;
 
-	assert(p.rhs != AST_EMPTY);
+	assert(p.lhs != AST_EMPTY || p.rhs != AST_EMPTY);
+
+	idx_t_ ni;
 
 	if (p.lhs != AST_EMPTY)
 		ltype = *typegrab(ast, toks, p.lhs);
-	idx_t_ ni = typechkexpr(ctx, evs, types, ast, toks, p.rhs);
-	rtype = types[p.rhs];
+	if (p.rhs != AST_EMPTY) {
+		ni = typechkexpr(ctx, evs, types, ast, toks, p.rhs);
+		rtype = types[p.rhs];
+	} else
+		ni = fwdnode(ast, i);
 
 	if (ltype.kind == TYPE_UNSET)
 		ltype = rtype;
