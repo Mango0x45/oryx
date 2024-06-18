@@ -14,8 +14,7 @@
 
 struct environ {
 	idx_t_ up;
-	struct constdecl {
-		struct type type;
+	struct declaration {
 		idx_t_ astidx;
 	} *buf;
 	size_t len, cap;
@@ -30,14 +29,24 @@ static struct environ *create_environments(struct ast, struct lexemes,
                                            struct environs *, idx_t_, idx_t_,
                                            arena *)
 	__attribute__((returns_nonnull, nonnull));
-static void typecheck_environment(struct environs, struct ast, struct lexemes,
-                                  idx_t_);
-static struct type typecheck_constdecl(struct environs, struct ast,
-                                       struct lexemes, idx_t_, idx_t_);
-static struct type typecheck_expr(struct environs, struct ast, struct lexemes,
-                                  idx_t_, idx_t_);
-static struct type typecheck_fn(struct environs, struct ast, struct lexemes,
-                                idx_t_, idx_t_);
+static void typecheckast(struct environs, struct type *, struct ast,
+                         struct lexemes)
+	__attribute__((nonnull));
+static idx_t_ typecheckdecl(struct environs, struct type *, struct ast,
+                            struct lexemes, idx_t_, idx_t_)
+	__attribute__((nonnull));
+static idx_t_ typecheckstmt(struct environs, struct type *, struct ast,
+                            struct lexemes, idx_t_, idx_t_)
+	__attribute__((nonnull));
+static idx_t_ typecheckexpr(struct environs, struct type *, struct ast,
+                            struct lexemes, idx_t_, idx_t_)
+	__attribute__((nonnull));
+static idx_t_ typecheckfn(struct environs, struct type *, struct ast,
+                          struct lexemes, idx_t_, idx_t_)
+	__attribute__((nonnull));
+static idx_t_ typecheckblk(struct environs, struct type *, struct ast,
+                           struct lexemes, idx_t_, idx_t_)
+	__attribute__((nonnull));
 static const struct type *typegrab(struct ast, struct lexemes, idx_t_)
 	__attribute__((returns_nonnull));
 static bool typecompat(struct type, struct type);
@@ -46,18 +55,21 @@ static bool typecompat(struct type, struct type);
 const struct type *typelookup(const uchar *, size_t)
 	__attribute__((nonnull));
 
-void
+struct type *
 analyzeast(struct ast ast, struct lexemes toks)
 {
 	arena a = NULL;
 	struct environs evs = {0};
+	struct type *types = bufalloc(NULL, ast.len, sizeof(*types));
+	memset(types, 0, ast.len * sizeof(*types));
 
 	create_environments(ast, toks, &evs, 0, ast.len - 1, &a);
-	for (size_t i = 0; i < evs.len; i++)
-		typecheck_environment(evs, ast, toks, i);
+	typecheckast(evs, types, ast, toks);
 
 	arena_free(&a);
 	free(evs.buf);
+
+	return types;
 }
 
 struct environ *
@@ -73,25 +85,29 @@ create_environments(struct ast ast, struct lexemes toks, struct environs *evs,
 
 	struct environ *ev = evs->buf + evs->len++;
 	*ev = (struct environ){.cap = 16};
-	ev->buf = arena_new(a, struct constdecl, ev->cap);
+	ev->buf = arena_new(a, struct declaration, ev->cap);
 
 	for (idx_t_ i = beg; likely(i <= end); i++) {
 		switch (ast.kinds[i]) {
+		case ASTDECL:
+			if (beg != 0)
+				break;
+			__attribute__((fallthrough));
 		case ASTCDECL: {
-			struct constdecl cd = {.astidx = i};
+			struct declaration cd = {.astidx = i};
 			struct strview sv = toks.strs[ast.lexemes[i]];
 
 			/* TODO: Sorted insert and existence check */
 			for (size_t i = 0; i < ev->len; i++) {
 				struct strview sv2 = toks.strs[ast.lexemes[ev->buf[i].astidx]];
 				if (sv.len == sv2.len && memcmp(sv.p, sv2.p, sv.len) == 0) {
-					err("analyzer: Constant ‘%.*s’ declared multiple times",
+					err("analyzer: Symbol ‘%.*s’ declared multiple times",
 					    (int)sv.len, sv.p);
 				}
 			}
 
 			if (ev->len == ev->cap) {
-				ev->buf = arena_grow(a, ev->buf, struct constdecl, ev->cap,
+				ev->buf = arena_grow(a, ev->buf, struct declaration, ev->cap,
 				                     ev->cap * 2);
 				ev->cap *= 2;
 			}
@@ -114,12 +130,18 @@ create_environments(struct ast ast, struct lexemes toks, struct environs *evs,
 }
 
 void
-typecheck_environment(struct environs evs, struct ast ast, struct lexemes toks,
-                      idx_t_ i)
+typecheckast(struct environs evs, struct type *types, struct ast ast,
+             struct lexemes toks)
 {
-	struct environ ev = evs.buf[i];
-	for (size_t j = 0; j < ev.len; j++)
-		typecheck_constdecl(evs, ast, toks, j, i);
+	for (idx_t_ i = 0; likely(i < ast.len);) {
+		assert(ast.kinds[i] == ASTDECL || ast.kinds[i] == ASTCDECL);
+		if (types[i].kind == TYPE_UNSET)
+			i = typecheckdecl(evs, types, ast, toks, 0, i);
+		else {
+			while (++i < ast.len && ast.kinds[i] != ASTDECL && ast.kinds[i] != ASTCDECL)
+				;
+		}
+	}
 }
 
 const struct type *
@@ -132,17 +154,13 @@ typegrab(struct ast ast, struct lexemes toks, idx_t_ i)
 	return tp;
 }
 
-struct type
-typecheck_constdecl(struct environs evs, struct ast ast, struct lexemes toks,
-                    idx_t_ i, idx_t_ evi)
+idx_t_
+typecheckdecl(struct environs evs, struct type *types, struct ast ast,
+              struct lexemes toks, idx_t_ evi, idx_t_ i)
 {
-	struct environ ev = evs.buf[evi];
-	struct constdecl cd = ev.buf[i];
-	if (cd.type.kind != TYPE_UNSET)
-		return cd.type;
-	ev.buf[i].type.kind = TYPE_CHECKING;
+	types[i].kind = TYPE_CHECKING;
 
-	struct pair p = ast.kids[cd.astidx];
+	struct pair p = ast.kids[i];
 	struct type ltype, rtype;
 	ltype.kind = TYPE_UNSET;
 
@@ -150,38 +168,66 @@ typecheck_constdecl(struct environs evs, struct ast ast, struct lexemes toks,
 
 	if (p.lhs != AST_EMPTY)
 		ltype = *typegrab(ast, toks, p.lhs);
-	rtype = typecheck_expr(evs, ast, toks, p.rhs, evi);
+	idx_t_ ni = typecheckexpr(evs, types, ast, toks, evi, p.rhs);
+	rtype = types[p.rhs];
 
 	if (ltype.kind == TYPE_UNSET)
 		ltype = rtype;
 	else if (!typecompat(ltype, rtype))
 		err("analyzer: Type mismatch");
 
-	return ev.buf[i].type = ltype;
+	types[i] = ltype;
+	return ni;
 }
 
-struct type
-typecheck_expr(struct environs evs, struct ast ast, struct lexemes toks,
-               idx_t_ i, idx_t_ evi)
+idx_t_
+typecheckstmt(struct environs evs, struct type *types, struct ast ast,
+              struct lexemes toks, idx_t_ evi, idx_t_ i)
+{
+	switch (ast.kinds[i]) {
+	case ASTDECL:
+	case ASTCDECL:
+		return typecheckdecl(evs, types, ast, toks, evi, i);
+	case ASTRET: {
+		idx_t_ ni = typecheckexpr(evs, types, ast, toks, evi, ast.kids[i].rhs);
+		types[i] = types[ast.kids[i].rhs];
+		return ni;
+	}
+	}
+
+	assert(!"unreachable");
+	__builtin_unreachable();
+}
+
+idx_t_
+typecheckexpr(struct environs evs, struct type *types, struct ast ast,
+              struct lexemes toks, idx_t_ evi, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTNUMLIT:
-		return (struct type){.kind = TYPE_INT_UNTYPED, .issigned = true};
+		types[i].kind = TYPE_NUM;
+		types[i].size = 0;
+		types[i].issigned = true;
+		return i + 1;
 	case ASTIDENT: {
 		struct environ ev = evs.buf[evi];
 		struct strview sv = toks.strs[ast.lexemes[i]];
 
 		for (;;) {
-			for (size_t i = 0; i < ev.len; i++) {
-				struct strview sv2 = toks.strs[ast.lexemes[ev.buf[i].astidx]];
+			for (size_t j = 0; j < ev.len; j++) {
+				struct strview sv2 = toks.strs[ast.lexemes[ev.buf[j].astidx]];
 				if (sv.len != sv2.len || memcmp(sv.p, sv2.p, sv.len) != 0)
 					continue;
-				struct type t = typecheck_constdecl(evs, ast, toks, i, evi);
-				if (t.kind == TYPE_CHECKING) {
-					err("analyzer: Circular dependency for type ‘%.*s’",
-					    (int)sv2.len, sv2.p);
+				switch (types[j].kind) {
+				case TYPE_UNSET:
+					typecheckdecl(evs, types, ast, toks, evi, j);
+					break;
+				case TYPE_CHECKING:
+					err("analyzer: Circular definition of ‘%.*s’", (int)sv2.len,
+					    sv2.p);
 				}
-				return t;
+				types[i] = types[j];
+				return i + 1;
 			}
 			if (evi == 0)
 				err("analyzer: Unknown constant ‘%.*s’", (int)sv.len, sv.p);
@@ -189,28 +235,38 @@ typecheck_expr(struct environs evs, struct ast ast, struct lexemes toks,
 		}
 	}
 	case ASTFN:
-		return typecheck_fn(evs, ast, toks, i, evi);
+		return typecheckfn(evs, types, ast, toks, evi, i);
 	default:
 		err("analyzer: Unexpected AST kind %u", ast.kinds[i]);
 		__builtin_unreachable();
 	}
 }
 
-struct type
-typecheck_fn(struct environs evs, struct ast ast, struct lexemes toks,
-             idx_t_ i, idx_t_ evi)
+idx_t_
+typecheckfn(struct environs evs, struct type *types, struct ast ast,
+            struct lexemes toks, idx_t_ evi, idx_t_ i)
 {
 	struct type t = {.kind = TYPE_FN};
 	struct pair p = ast.kids[i];
 
 	idx_t_ proto = p.lhs;
-	if (ast.kids[proto].rhs == AST_EMPTY)
-		return t;
+	if (ast.kids[proto].rhs != AST_EMPTY)
+		t.ret = typegrab(ast, toks, ast.kids[proto].rhs);
+	types[i] = t;
+	idx_t_ ni = typecheckblk(evs, types, ast, toks, evi, p.rhs);
+	// if (!typecompat(types[i], types[p.rhs]))
+	// 	err("analyzer: Type mismatch");
+	return ni;
+}
 
-	t.ret = typegrab(ast, toks, ast.kids[proto].rhs);
-	return t;
-
-	/* TODO: Typecheck function body */
+idx_t_
+typecheckblk(struct environs evs, struct type *types, struct ast ast,
+             struct lexemes toks, idx_t_ evi, idx_t_ i)
+{
+	struct pair p = ast.kids[i];
+	for (i = p.lhs; i <= p.rhs;)
+		i = typecheckstmt(evs, types, ast, toks, evi, i);
+	return i;
 }
 
 bool
@@ -223,7 +279,7 @@ typecompat(struct type lhs, struct type rhs)
 		return true;
 
 	/* TODO: Need to actually parse it!  256 should not coerce to i8. */
-	if (rhs.kind == TYPE_INT_UNTYPED)
+	if (rhs.kind == TYPE_NUM)
 		return true;
 
 	if (lhs.issigned != rhs.issigned)
