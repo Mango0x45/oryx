@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <stdio.h>
-
 #include "alloc.h"
 #include "analyzer.h"
 #include "common.h"
