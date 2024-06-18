@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <stdio.h>
+
 #include "alloc.h"
 #include "analyzer.h"
 #include "common.h"
@@ -13,44 +15,39 @@
 #include "types.h"
 
 struct environ {
-	idx_t_ up;
 	struct declaration {
 		idx_t_ astidx;
 	} *buf;
 	size_t len, cap;
 };
 
-struct environs {
+struct evstack {
 	struct environ *buf;
 	size_t len, cap;
 };
 
 struct typechkctx {
 	struct type fnret;
+	struct strview decl;
 };
 
-static struct environ *create_environments(struct ast, struct lexemes,
-                                           struct environs *, idx_t_, idx_t_,
-                                           arena *)
-	__attribute__((returns_nonnull, nonnull));
-
-static void typechkast(struct environs, struct type *, struct ast,
+static void typechkast(struct evstack, struct type *, struct ast,
                        struct lexemes)
 	__attribute__((nonnull));
-static idx_t_ typechkdecl(struct typechkctx, struct environs, struct type *,
-                          struct ast, struct lexemes, idx_t_, idx_t_)
+static idx_t_ typechkdecl(struct typechkctx, struct evstack, struct type *,
+                          struct ast, struct lexemes, idx_t_)
 	__attribute__((nonnull));
-static idx_t_ typechkstmt(struct typechkctx, struct environs, struct type *,
-                          struct ast, struct lexemes, idx_t_, idx_t_)
+static idx_t_ typechkstmt(struct typechkctx, struct evstack, struct type *,
+                          struct ast, struct lexemes, idx_t_)
 	__attribute__((nonnull));
-static idx_t_ typechkexpr(struct typechkctx, struct environs, struct type *,
-                          struct ast, struct lexemes, idx_t_, idx_t_)
+static idx_t_ typechkexpr(struct typechkctx, struct evstack, struct type *,
+                          struct ast, struct lexemes, idx_t_)
 	__attribute__((nonnull));
-static idx_t_ typechkfn(struct typechkctx, struct environs, struct type *,
-                        struct ast, struct lexemes, idx_t_, idx_t_)
+static idx_t_ typechkfn(struct typechkctx, struct evstack, struct type *,
+                        struct ast, struct lexemes, idx_t_)
 	__attribute__((nonnull));
-static idx_t_ typechkblk(struct typechkctx, struct environs, struct type *,
-                         struct ast, struct lexemes, idx_t_, idx_t_)
+static idx_t_ typechkblk(struct typechkctx, struct evstack, struct type *,
+                         struct ast, struct lexemes, idx_t_)
 	__attribute__((nonnull));
 
 static const struct type *typegrab(struct ast, struct lexemes, idx_t_)
@@ -65,86 +62,51 @@ struct type *
 analyzeast(struct ast ast, struct lexemes toks)
 {
 	arena a = NULL;
-	struct environs evs = {0};
+	struct evstack evs = {.cap = 16};
+	evs.buf = bufalloc(NULL, evs.cap, sizeof(*evs.buf));
 	struct type *types = bufalloc(NULL, ast.len, sizeof(*types));
 	memset(types, 0, ast.len * sizeof(*types));
 
-	create_environments(ast, toks, &evs, 0, ast.len - 1, &a);
 	typechkast(evs, types, ast, toks);
 
 	arena_free(&a);
 	free(evs.buf);
-
 	return types;
 }
 
-struct environ *
-create_environments(struct ast ast, struct lexemes toks, struct environs *evs,
-                    idx_t_ beg, idx_t_ end, arena *a)
+static idx_t_ fwdnode(struct ast, idx_t_);
+
+idx_t_
+fwdnode(struct ast ast, idx_t_ i)
 {
-	assert(evs != NULL);
-
-	if (evs->len == evs->cap) {
-		evs->cap = evs->cap == 0 ? 8 : evs->cap * 2;
-		evs->buf = bufalloc(evs->buf, evs->cap, sizeof(*evs->buf));
-	}
-
-	struct environ *ev = evs->buf + evs->len++;
-	*ev = (struct environ){.cap = 16};
-	ev->buf = arena_new(a, struct declaration, ev->cap);
-
-	for (idx_t_ i = beg; likely(i <= end); i++) {
+	while (likely(i < ast.len)) {
 		switch (ast.kinds[i]) {
+		case ASTBLK:
+			i = ast.kids[i].lhs == AST_EMPTY ? i + 1 : ast.kids[i].rhs;
+			break;
 		case ASTDECL:
-			if (beg != 0)
-				break;
-			__attribute__((fallthrough));
-		case ASTCDECL: {
-			struct declaration cd = {.astidx = i};
-			struct strview sv = toks.strs[ast.lexemes[i]];
-
-			/* TODO: Sorted insert and existence check */
-			for (size_t i = 0; i < ev->len; i++) {
-				struct strview sv2 = toks.strs[ast.lexemes[ev->buf[i].astidx]];
-				if (sv.len == sv2.len && memcmp(sv.p, sv2.p, sv.len) == 0) {
-					err("analyzer: Symbol ‘%.*s’ declared multiple times",
-					    (int)sv.len, sv.p);
-				}
-			}
-
-			if (ev->len == ev->cap) {
-				ev->buf = arena_grow(a, ev->buf, struct declaration, ev->cap,
-				                     ev->cap * 2);
-				ev->cap *= 2;
-			}
-			ev->buf[ev->len++] = cd;
+		case ASTRET:
+			if (ast.kids[i].rhs == AST_EMPTY)
+				return i + 1;
+			i++;
 			break;
-		}
-		case ASTBLK: {
-			idx_t_ lhs, rhs, up;
-			lhs = ast.kids[i].lhs;
-			rhs = ast.kids[i].rhs;
-			up = ev - evs->buf;
-			create_environments(ast, toks, evs, lhs, rhs, a)->up = up;
-			i = rhs;
+		case ASTBINADD:
+		case ASTBINSUB:
+		case ASTCDECL:
+		case ASTFN:
+			i = ast.kids[i].rhs;
 			break;
-		}
+		case ASTIDENT:
+		case ASTNUMLIT:
+		case ASTTYPE:
+			return i + 1;
+		case ASTFNPROTO:
+			assert("analyzer: Not reachable");
+			__builtin_unreachable();
 		}
 	}
 
-	return ev;
-}
-
-void
-typechkast(struct environs evs, struct type *types, struct ast ast,
-           struct lexemes toks)
-{
-	struct typechkctx ctx = {0};
-	for (idx_t_ i = 0; likely(i < ast.len);
-	     i = typechkdecl(ctx, evs, types, ast, toks, 0, i))
-	{
-		assert(ast.kinds[i] == ASTDECL || ast.kinds[i] == ASTCDECL);
-	}
+	return i;
 }
 
 const struct type *
@@ -157,10 +119,40 @@ typegrab(struct ast ast, struct lexemes toks, idx_t_ i)
 	return tp;
 }
 
-idx_t_
-typechkdecl(struct typechkctx ctx, struct environs evs, struct type *types,
-            struct ast ast, struct lexemes toks, idx_t_ evi, idx_t_ i)
+void
+typechkast(struct evstack evs, struct type *types, struct ast ast,
+           struct lexemes toks)
 {
+	struct environ ev = {.cap = 16};
+	ev.buf = bufalloc(NULL, ev.cap, sizeof(*ev.buf));
+
+	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
+		assert(ast.kinds[i] == ASTDECL || ast.kinds[i] == ASTCDECL);
+		if (ev.len == ev.cap) {
+			ev.cap *= 2;
+			ev.buf = bufalloc(ev.buf, ev.cap, sizeof(*ev.buf));
+		}
+		ev.buf[ev.len++] = (struct declaration){.astidx = i};
+	}
+
+	assert(evs.cap > 0);
+	evs.buf[0] = ev;
+	evs.len = 1;
+
+	struct typechkctx ctx = {0};
+	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
+		assert(ast.kinds[i] == ASTDECL || ast.kinds[i] == ASTCDECL);
+		typechkdecl(ctx, evs, types, ast, toks, i);
+	}
+
+	free(ev.buf);
+}
+
+idx_t_
+typechkdecl(struct typechkctx ctx, struct evstack evs, struct type *types,
+            struct ast ast, struct lexemes toks, idx_t_ i)
+{
+	ctx.decl = toks.strs[ast.lexemes[i]];
 	types[i].kind = TYPE_CHECKING;
 
 	struct pair p = ast.kids[i];
@@ -171,7 +163,7 @@ typechkdecl(struct typechkctx ctx, struct environs evs, struct type *types,
 
 	if (p.lhs != AST_EMPTY)
 		ltype = *typegrab(ast, toks, p.lhs);
-	idx_t_ ni = typechkexpr(ctx, evs, types, ast, toks, evi, p.rhs);
+	idx_t_ ni = typechkexpr(ctx, evs, types, ast, toks, p.rhs);
 	rtype = types[p.rhs];
 
 	if (ltype.kind == TYPE_UNSET)
@@ -184,36 +176,36 @@ typechkdecl(struct typechkctx ctx, struct environs evs, struct type *types,
 }
 
 idx_t_
-typechkstmt(struct typechkctx ctx, struct environs evs, struct type *types,
-            struct ast ast, struct lexemes toks, idx_t_ evi, idx_t_ i)
+typechkstmt(struct typechkctx ctx, struct evstack evs, struct type *types,
+            struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return typechkdecl(ctx, evs, types, ast, toks, evi, i);
+		return typechkdecl(ctx, evs, types, ast, toks, i);
 	case ASTRET: {
 		idx_t_ expr = ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
 			if (ctx.fnret.kind != TYPE_UNSET)
-				err("analyzer: %s: Type mismatch", __func__);
+				err("analyzer: Missing return value");
 			return i + 1;
-		}
+		} else if (ctx.fnret.kind == TYPE_UNSET)
+			err("analyzer: Function has no return value");
 
-		idx_t_ ni = typechkexpr(ctx, evs, types, ast, toks, evi, ast.kids[i].rhs);
-		types[i] = types[ast.kids[i].rhs];
-		if (!typecompat(ctx.fnret, types[i]))
-			err("analyzer: %s: Type mismatch", __func__);
+		idx_t_ ni = typechkexpr(ctx, evs, types, ast, toks, ast.kids[i].rhs);
+		if (!typecompat(ctx.fnret, types[ast.kids[i].rhs]))
+			err("analyzer: Return type mismatch");
 		return ni;
 	}
+	default:
+		assert(!"unreachable");
+		__builtin_unreachable();
 	}
-
-	assert(!"unreachable");
-	__builtin_unreachable();
 }
 
 idx_t_
-typechkexpr(struct typechkctx ctx, struct environs evs, struct type *types,
-            struct ast ast, struct lexemes toks, idx_t_ evi, idx_t_ i)
+typechkexpr(struct typechkctx ctx, struct evstack evs, struct type *types,
+            struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTNUMLIT:
@@ -222,32 +214,43 @@ typechkexpr(struct typechkctx ctx, struct environs evs, struct type *types,
 		types[i].issigned = true;
 		return i + 1;
 	case ASTIDENT: {
-		struct environ ev = evs.buf[evi];
 		struct strview sv = toks.strs[ast.lexemes[i]];
 
-		for (;;) {
+		for (size_t lvl = evs.len; lvl-- > 0;) {
+			struct environ ev = evs.buf[lvl];
+			/* TODO: Binary search */
 			for (size_t j = 0; j < ev.len; j++) {
 				struct strview sv2 = toks.strs[ast.lexemes[ev.buf[j].astidx]];
 				if (sv.len != sv2.len || memcmp(sv.p, sv2.p, sv.len) != 0)
 					continue;
+
+				/* We need this to allow shadowing in situations like
+				   FOO :FOO */
+				if (lvl == evs.len - 1 && sv.len == ctx.decl.len
+				    && memcmp(sv.p, ctx.decl.p, sv.len) == 0)
+				{
+					break;
+				}
+
 				switch (types[j].kind) {
 				case TYPE_UNSET:
-					typechkdecl(ctx, evs, types, ast, toks, evi, j);
+					evs.len = lvl + 1;
+					typechkdecl(ctx, evs, types, ast, toks, ev.buf[j].astidx);
 					break;
 				case TYPE_CHECKING:
 					err("analyzer: Circular definition of ‘%.*s’", (int)sv.len,
 					    sv.p);
 				}
+
 				types[i] = types[j];
 				return i + 1;
 			}
-			if (evi == 0)
-				err("analyzer: Unknown constant ‘%.*s’", (int)sv.len, sv.p);
-			evi = ev.up;
 		}
+
+		err("analyzer: Unknown constant ‘%.*s’", (int)sv.len, sv.p);
 	}
 	case ASTFN:
-		return typechkfn(ctx, evs, types, ast, toks, evi, i);
+		return typechkfn(ctx, evs, types, ast, toks, i);
 	default:
 		err("analyzer: Unexpected AST kind %u", ast.kinds[i]);
 		__builtin_unreachable();
@@ -255,8 +258,8 @@ typechkexpr(struct typechkctx ctx, struct environs evs, struct type *types,
 }
 
 idx_t_
-typechkfn(struct typechkctx ctx, struct environs evs, struct type *types,
-          struct ast ast, struct lexemes toks, idx_t_ evi, idx_t_ i)
+typechkfn(struct typechkctx ctx, struct evstack evs, struct type *types,
+          struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	struct type t = {.kind = TYPE_FN};
 	struct pair p = ast.kids[i];
@@ -265,19 +268,42 @@ typechkfn(struct typechkctx ctx, struct environs evs, struct type *types,
 	if (ast.kids[proto].rhs != AST_EMPTY) {
 		t.ret = typegrab(ast, toks, ast.kids[proto].rhs);
 		ctx.fnret = *t.ret;
-	}
+	} else
+		ctx.fnret.kind = TYPE_UNSET;
 	types[i] = t;
-	idx_t_ ni = typechkblk(ctx, evs, types, ast, toks, evi, p.rhs);
+	idx_t_ ni = typechkblk(ctx, evs, types, ast, toks, p.rhs);
 	return ni;
 }
 
 idx_t_
-typechkblk(struct typechkctx ctx, struct environs evs, struct type *types,
-           struct ast ast, struct lexemes toks, idx_t_ evi, idx_t_ i)
+typechkblk(struct typechkctx ctx, struct evstack evs, struct type *types,
+           struct ast ast, struct lexemes toks, idx_t_ i)
 {
+	struct environ ev = {.cap = 16};
+	ev.buf = bufalloc(NULL, ev.cap, sizeof(*ev.buf));
+
 	struct pair p = ast.kids[i];
-	for (i = p.lhs; i <= p.rhs;)
-		i = typechkstmt(ctx, evs, types, ast, toks, evi, i);
+
+	for (idx_t_ i = p.lhs; likely(i < p.rhs); i = fwdnode(ast, i)) {
+		if (ast.kinds[i] != ASTCDECL)
+			continue;
+		if (ev.len == ev.cap) {
+			ev.cap *= 2;
+			ev.buf = bufalloc(ev.buf, ev.cap, sizeof(*ev.buf));
+		}
+		ev.buf[ev.len++] = (struct declaration){.astidx = i};
+	}
+
+	if (evs.len == evs.cap) {
+		evs.cap *= 2;
+		evs.buf = bufalloc(evs.buf, evs.cap, sizeof(*evs.buf));
+	}
+	evs.buf[evs.len++] = ev;
+
+	for (i = p.lhs; i <= p.rhs; i = typechkstmt(ctx, evs, types, ast, toks, i))
+		;
+
+	free(ev.buf);
 	return i;
 }
 
@@ -296,7 +322,7 @@ typecompat(struct type lhs, struct type rhs)
 	case TYPE_F64:
 		return lhs.size >= rhs.size;
 	case TYPE_RUNE:
-		return lhs.kind == rhs.kind;
+		return rhs.size == 0 || lhs.kind == rhs.kind;
 	}
 
 	__builtin_unreachable();

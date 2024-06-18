@@ -30,7 +30,7 @@ main(int argc, char **argv)
 	struct lexemes toks = lexstring(src, srclen);
 	struct ast ast = parsetoks(toks);
 	struct type *types = analyzeast(ast, toks);
-	codegen(argv[1], types, ast, toks);
+	// codegen(argv[1], types, ast, toks);
 
 #if DEBUG
 	free(types);

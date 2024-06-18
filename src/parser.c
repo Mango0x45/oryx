@@ -47,7 +47,8 @@ parseblk(struct ast *ast, struct lexemes toks)
 	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTBLK;
-	ast->kids[i].lhs = ast->kids[i].rhs = AST_EMPTY;
+	ast->kids[i].lhs = AST_EMPTY;
+	ast->kids[i].rhs = 0;
 
 	if (toks.kinds[toksidx++] != LEXLBRACE)
 		err("parser: Expected left brace");

@@ -22,10 +22,12 @@ enum {
 	   ‘(a: b, c: d) rhs’; aux[lhs].fnproto */
 	ASTFNPROTO,
 
-	/* Function, lhs is the prototype and rhs is the body block */
+	/* Function
+	   ‘(…)@lhs {…}@rhs’ */
 	ASTFN,
 
-	/* Braced block, sublist[lhs…rhs] */
+	/* Braced block, an empty block has lhs = AST_EMPTY and rhs = 0
+	   { stmt@lhs; …; stmt@rhs; } */
 	ASTBLK,
 
 	/* Identifier literal */
