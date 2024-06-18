@@ -66,9 +66,15 @@ codegen(const char *file, struct type *types, struct ast ast,
 				size_t type = ast.kids[proto].rhs;
 				struct strview sv = toks.strs[ast.lexemes[type]];
 
-				/* TODO: Make int 32bit on 32bit platforms */
+				/* Very very temporary! */
 				if (strncmp("int", sv.p, sv.len) == 0)
 					ret = LLVMInt64Type();
+				else if (strncmp("i32", sv.p, sv.len) == 0)
+					ret = LLVMInt32Type();
+				else if (strncmp("u32", sv.p, sv.len) == 0)
+					ret = LLVMInt32Type();
+				else if (strncmp("i128", sv.p, sv.len) == 0)
+					ret = LLVMInt128Type();
 				else
 					err("codegen: Unknown type: %.*s", (int)sv.len, sv.p);
 			}
