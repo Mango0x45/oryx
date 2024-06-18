@@ -12,11 +12,11 @@
 #include "parser.h"
 #include "types.h"
 
-static size_t codegenstmt(LLVMBuilderRef, LLVMValueRef *, struct ast,
-                          struct lexemes, size_t)
+static size_t codegenstmt(LLVMBuilderRef, LLVMValueRef *, struct type *,
+                          struct ast, struct lexemes, size_t)
 	__attribute__((nonnull));
-static size_t codegenexpr(LLVMBuilderRef, LLVMValueRef *, struct ast,
-                          struct lexemes, size_t, LLVMValueRef *)
+static size_t codegenexpr(LLVMBuilderRef, LLVMValueRef *, struct type *,
+                          struct ast, struct lexemes, size_t, LLVMValueRef *)
 	__attribute__((nonnull));
 
 static LLVMTypeRef type2llvm(struct type);
@@ -43,7 +43,7 @@ codegen(const char *file, struct type *types, struct ast ast,
 			LLVMTypeRef T = type2llvm(types[i]);
 			LLVMValueRef globl, val;
 			globl = LLVMAddGlobal(mod, T, name);
-			i = codegenexpr(builder, declvals, ast, toks, ast.kids[i].rhs, &val);
+			i = codegenexpr(builder, declvals, types, ast, toks, ast.kids[i].rhs, &val);
 			LLVMSetInitializer(globl, LLVMConstTrunc(val, T));
 			free(name);
 			break;
@@ -86,7 +86,7 @@ codegen(const char *file, struct type *types, struct ast ast,
 			free(fnname);
 
 			for (i = ast.kids[body].lhs; i <= ast.kids[body].rhs;)
-				i = codegenstmt(builder, declvals, ast, toks, i);
+				i = codegenstmt(builder, declvals, types, ast, toks, i);
 			break;
 		}
 		default:
@@ -106,8 +106,8 @@ codegen(const char *file, struct type *types, struct ast ast,
 }
 
 size_t
-codegenstmt(LLVMBuilderRef builder, LLVMValueRef *declvals, struct ast ast,
-            struct lexemes toks, size_t i)
+codegenstmt(LLVMBuilderRef builder, LLVMValueRef *declvals, struct type *types,
+            struct ast ast, struct lexemes toks, size_t i)
 {
 	switch (ast.kinds[i]) {
 	case ASTRET:
@@ -116,7 +116,8 @@ codegenstmt(LLVMBuilderRef builder, LLVMValueRef *declvals, struct ast ast,
 			return i + 1;
 		}
 		LLVMValueRef v;
-		i = codegenexpr(builder, declvals, ast, toks, ast.kids[i].rhs, &v);
+		i = codegenexpr(builder, declvals, types, ast, toks, ast.kids[i].rhs,
+		                &v);
 		LLVMBuildRet(builder, v);
 		return i;
 	}
@@ -126,9 +127,10 @@ codegenstmt(LLVMBuilderRef builder, LLVMValueRef *declvals, struct ast ast,
 }
 
 size_t
-codegenexpr(LLVMBuilderRef builder, LLVMValueRef *declvals, struct ast ast,
-            struct lexemes toks, size_t i, LLVMValueRef *v)
+codegenexpr(LLVMBuilderRef builder, LLVMValueRef *declvals, struct type *types,
+            struct ast ast, struct lexemes toks, size_t i, LLVMValueRef *v)
 {
+	(void)declvals;
 	(void)builder;
 	switch (ast.kinds[i]) {
 	case ASTNUMLIT: {
@@ -146,10 +148,11 @@ codegenexpr(LLVMBuilderRef builder, LLVMValueRef *declvals, struct ast ast,
 					p[len++] = sv.p[i];
 			}
 
-			*v = LLVMConstIntOfStringAndSize(LLVMInt64Type(), p, len, 10);
+			*v = LLVMConstIntOfStringAndSize(type2llvm(types[i]), p, len, 10);
 			free(p);
 		} else
-			*v = LLVMConstIntOfStringAndSize(LLVMInt64Type(), sv.p, sv.len, 10);
+			*v = LLVMConstIntOfStringAndSize(type2llvm(types[i]), sv.p, sv.len,
+			                                 10);
 		return i + 1;
 	}
 	case ASTIDENT:
@@ -177,8 +180,8 @@ type2llvm(struct type t)
 		assert(t.issigned);
 		/* TODO: Arbitrary precision */
 		if (t.size == 0)
-			t.size = 8;
-		return LLVMIntType(t.size * 8);
+			return LLVMInt128Type();
+		return LLVMIntType((unsigned)t.size * 8);
 	default:
 		__builtin_unreachable();
 	}
