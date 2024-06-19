@@ -16,19 +16,21 @@
 
 struct typeslot { char *name; struct type inner; };
 %%
-i8,   { TYPE_NUM,  1, true  }
-i16,  { TYPE_NUM,  2, true  }
-i32,  { TYPE_NUM,  4, true  }
-i64,  { TYPE_NUM,  8, true  }
-i128, { TYPE_NUM, 16, true  }
-int,  { TYPE_NUM,  8, true  }
-u8,   { TYPE_NUM,  1, false }
-u16,  { TYPE_NUM,  2, false }
-u32,  { TYPE_NUM,  4, false }
-u64,  { TYPE_NUM,  8, false }
-u128, { TYPE_NUM, 16, false }
-uint, { TYPE_NUM,  8, false }
-rune, { TYPE_NUM , 4, true  }
+i8,   { TYPE_NUM,  1, true,  false }
+i16,  { TYPE_NUM,  2, true,  false }
+i32,  { TYPE_NUM,  4, true,  false }
+i64,  { TYPE_NUM,  8, true,  false }
+i128, { TYPE_NUM, 16, true,  false }
+int,  { TYPE_NUM,  8, true,  false }
+u8,   { TYPE_NUM,  1, false, false }
+u16,  { TYPE_NUM,  2, false, false }
+u32,  { TYPE_NUM,  4, false, false }
+u64,  { TYPE_NUM,  8, false, false }
+u128, { TYPE_NUM, 16, false, false }
+uint, { TYPE_NUM,  8, false, false }
+rune, { TYPE_NUM , 4, true,  false }
+f32,  { TYPE_NUM,  4, true,  true  }
+f64,  { TYPE_NUM,  8, true,  true  }
 %%
 const struct type *
 typelookup(const uchar *p, size_t len)

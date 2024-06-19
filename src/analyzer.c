@@ -292,6 +292,7 @@ typecompat(struct type lhs, struct type rhs)
 		return true;
 
 	/* Two typed numeric types are only compatible if they have the same size
-	   and sign */
-	return lhs.issigned == rhs.issigned && lhs.size == rhs.size;
+	   and sign and are either both integral or both floats */
+	return lhs.issigned == rhs.issigned && lhs.isfloat == rhs.isfloat
+	    && lhs.size == rhs.size;
 }

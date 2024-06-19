@@ -9,20 +9,8 @@
 enum {
 	TYPE_UNSET = 0,
 	TYPE_CHECKING = 1,
-
 	TYPE_NUM,
-
-	/* Floating point numbers */
-	TYPE_F16,
-	TYPE_F32,
-	TYPE_F64,
-
-	/* Unicode codepoint */
-	TYPE_RUNE,
-
-	/* Function type */
 	TYPE_FN,
-
 	_TYPE_LAST_ENT,
 };
 
@@ -32,8 +20,9 @@ static_assert(_TYPE_LAST_ENT - 1 <= (type_kind_t_)-1,
 
 struct type {
 	type_kind_t_ kind;
-	uint8_t size  : 7; /* bytes */
+	uint8_t size  : 6; /* bytes */
 	bool issigned : 1;
+	bool isfloat  : 1;
 
 	/* For functions */
 	const struct type *params, *ret;
