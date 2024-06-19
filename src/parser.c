@@ -18,14 +18,57 @@
 #endif
 #define SIZE_WDTH (sizeof(size_t) * CHAR_BIT)
 
-typedef idx_t_ parsefn(struct ast *, struct lexemes) __attribute__((nonnull));
-static parsefn parseblk, parsedecl, parseexpr, parseproto, parsestmt, parsetype;
+typedef idx_t_ parsefn(struct ast *, struct lexemes)
+	__attribute__((nonnull));
+static parsefn parseblk, parseexpr, parsefunc, parseproto, parsestmt, parsetype;
+static idx_t_ parsedecl(struct ast *, struct lexemes, bool)
+	__attribute__((nonnull));
 
 static struct ast mkast(void);
-static idx_t_ astalloc(struct ast *) __attribute__((nonnull));
-static void astresz(struct ast *)    __attribute__((nonnull));
+static idx_t_ astalloc(struct ast *)
+	__attribute__((nonnull));
+static void astresz(struct ast *)
+	__attribute__((nonnull));
 
 static size_t toksidx;
+
+idx_t_
+fwdnode(struct ast ast, idx_t_ i)
+{
+	while (likely(i < ast.len)) {
+		switch (ast.kinds[i]) {
+		case ASTBLK:
+			i = ast.kids[i].lhs == AST_EMPTY ? i + 1 : ast.kids[i].rhs;
+			break;
+		case ASTDECL:
+		case ASTPDECL:
+			i = ast.kids[i].rhs == AST_EMPTY ? ast.kids[i].lhs
+			                                 : ast.kids[i].rhs;
+			break;
+		case ASTRET:
+			if (ast.kids[i].rhs == AST_EMPTY)
+				return i + 1;
+			i = ast.kids[i].rhs;
+			break;
+		case ASTBINADD:
+		case ASTBINSUB:
+		case ASTCDECL:
+		case ASTPCDECL:
+		case ASTFN:
+			i = ast.kids[i].rhs;
+			break;
+		case ASTIDENT:
+		case ASTNUMLIT:
+		case ASTTYPE:
+			return i + 1;
+		case ASTFNPROTO:
+			assert("analyzer: Not reachable");
+			__builtin_unreachable();
+		}
+	}
+
+	return i;
+}
 
 struct ast
 parsetoks(struct lexemes toks)
@@ -33,7 +76,7 @@ parsetoks(struct lexemes toks)
 	struct ast ast = mkast();
 
 	for (;;) {
-		(void)parsedecl(&ast, toks);
+		(void)parsedecl(&ast, toks, true);
 		if (toks.kinds[toksidx] == LEXEOF)
 			break;
 	}
@@ -68,10 +111,19 @@ parseblk(struct ast *ast, struct lexemes toks)
 }
 
 idx_t_
-parsedecl(struct ast *ast, struct lexemes toks)
+parsedecl(struct ast *ast, struct lexemes toks, bool toplvl)
 {
 	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
+
+	bool pub;
+	if (toplvl && toks.kinds[toksidx] == LEXIDENT && toks.strs[toksidx].len == 3
+	    && memcmp("pub", toks.strs[toksidx].p, 3) == 0)
+	{
+		pub = true;
+		toksidx++;
+	} else
+		pub = false;
 
 	if (toks.kinds[toksidx++] != LEXIDENT)
 		err("parser: Expected identifier");
@@ -86,23 +138,44 @@ parsedecl(struct ast *ast, struct lexemes toks)
 	case LEXSEMI:
 		if (ast->kids[i].lhs == AST_EMPTY)
 			err("parser: No type provided in non-assigning declaration");
-		ast->kinds[i] = ASTDECL;
+		ast->kinds[i] = ASTDECL + pub;
 		ast->kids[i].rhs = AST_EMPTY;
 		return i;
 	case LEXCOLON:
-		ast->kinds[i] = ASTCDECL;
+		ast->kinds[i] = ASTCDECL + pub;
 		break;
 	case LEXEQ:
-		ast->kinds[i] = ASTDECL;
+		ast->kinds[i] = ASTDECL + pub;
 		break;
 	default:
-		err("parser: Expected semicolon or equals");
+		err("parser: Expected colon, equals, or semicolon");
 	}
 
-	idx_t_ rhs = parseexpr(ast, toks);
+	bool func = toks.kinds[toksidx] == LEXLPAR;
+	if (func && ast->kinds[i] - pub == ASTDECL)
+		err("Cannot assign function to mutable variable");
+
+	idx_t_ rhs = (func ? parsefunc : parseexpr)(ast, toks);
 	ast->kids[i].rhs = rhs;
-	if (toks.kinds[toksidx++] != LEXSEMI)
+	if (!func && toks.kinds[toksidx++] != LEXSEMI)
 		err("parser: Expected semicolon");
+
+	return i;
+}
+
+idx_t_
+parsefunc(struct ast *ast, struct lexemes toks)
+{
+	idx_t_ i = astalloc(ast);
+	ast->lexemes[i] = toksidx;
+
+	assert(toks.kinds[toksidx] == LEXLPAR);
+
+	ast->kinds[i] = ASTFN;
+	idx_t_ lhs = parseproto(ast, toks);
+	idx_t_ rhs = parseblk(ast, toks);
+	ast->kids[i].lhs = lhs;
+	ast->kids[i].rhs = rhs;
 
 	return i;
 }
@@ -121,13 +194,6 @@ parseexpr(struct ast *ast, struct lexemes toks)
 	case LEXIDENT:
 		toksidx++;
 		ast->kinds[i] = ASTIDENT;
-		break;
-	case LEXLPAR:
-		ast->kinds[i] = ASTFN;
-		idx_t_ lhs = parseproto(ast, toks);
-		idx_t_ rhs = parseblk(ast, toks);
-		ast->kids[i].lhs = lhs;
-		ast->kids[i].rhs = rhs;
 		break;
 	default:
 		err("parser: Expected expression");
@@ -164,7 +230,7 @@ parsestmt(struct ast *ast, struct lexemes toks)
 		err("parser: Expected identifier");
 
 	struct strview sv = toks.strs[toksidx];
-	if (strncmp("return", sv.p, sv.len) == 0) {
+	if (sv.len == 6 && memcmp(sv.p, "return", 6) == 0) {
 		i = astalloc(ast);
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;
@@ -175,9 +241,9 @@ parsestmt(struct ast *ast, struct lexemes toks)
 		if (toks.kinds[toksidx++] != LEXSEMI)
 			err("parser: Expected semicolon");
 	} else if (toks.kinds[toksidx + 1] == LEXCOLON)
-		i = parsedecl(ast, toks);
+		i = parsedecl(ast, toks, false);
 	else
-		i = parseexpr(ast, toks);
+		err("parser: Invalid statement");
 
 	return i;
 }

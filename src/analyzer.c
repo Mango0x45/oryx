@@ -72,44 +72,6 @@ analyzeast(struct ast ast, struct lexemes toks)
 	return types;
 }
 
-static idx_t_ fwdnode(struct ast, idx_t_);
-
-idx_t_
-fwdnode(struct ast ast, idx_t_ i)
-{
-	while (likely(i < ast.len)) {
-		switch (ast.kinds[i]) {
-		case ASTBLK:
-			i = ast.kids[i].lhs == AST_EMPTY ? i + 1 : ast.kids[i].rhs;
-			break;
-		case ASTDECL:
-			i = ast.kids[i].rhs == AST_EMPTY ? ast.kids[i].lhs
-			                                 : ast.kids[i].rhs;
-			break;
-		case ASTRET:
-			if (ast.kids[i].rhs == AST_EMPTY)
-				return i + 1;
-			i = ast.kids[i].rhs;
-			break;
-		case ASTBINADD:
-		case ASTBINSUB:
-		case ASTCDECL:
-		case ASTFN:
-			i = ast.kids[i].rhs;
-			break;
-		case ASTIDENT:
-		case ASTNUMLIT:
-		case ASTTYPE:
-			return i + 1;
-		case ASTFNPROTO:
-			assert("analyzer: Not reachable");
-			__builtin_unreachable();
-		}
-	}
-
-	return i;
-}
-
 const struct type *
 typegrab(struct ast ast, struct lexemes toks, idx_t_ i)
 {
@@ -128,7 +90,7 @@ typechkast(struct evstack evs, struct type *types, struct ast ast,
 	ev.buf = bufalloc(NULL, ev.cap, sizeof(*ev.buf));
 
 	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
-		assert(ast.kinds[i] == ASTDECL || ast.kinds[i] == ASTCDECL);
+		assert(ast.kinds[i] <= _AST_DECLS_END);
 		if (ev.len == ev.cap) {
 			ev.cap *= 2;
 			ev.buf = bufalloc(ev.buf, ev.cap, sizeof(*ev.buf));
@@ -142,7 +104,7 @@ typechkast(struct evstack evs, struct type *types, struct ast ast,
 
 	struct typechkctx ctx = {0};
 	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
-		assert(ast.kinds[i] == ASTDECL || ast.kinds[i] == ASTCDECL);
+		assert(ast.kinds[i] <= _AST_DECLS_END);
 		typechkdecl(ctx, evs, types, ast, toks, i);
 	}
 

@@ -14,9 +14,19 @@ enum {
 	   ‘x: lhs = rhs’ */
 	ASTDECL,
 
+	/* Public variable declaration, lhs and rhs may be unused
+	   ‘pub x: lhs = rhs’ */
+	ASTPDECL,
+
 	/* Constant declaration, lhs may be unused
 	   ‘x: lhs : rhs’ */
 	ASTCDECL,
+
+	/* Public constant declaration, lhs may be unused
+	   ‘pub x: lhs : rhs’ */
+	ASTPCDECL,
+
+	_AST_DECLS_END = ASTPCDECL,
 
 	/* Function prototype
 	   ‘(a: b, c: d) rhs’; aux[lhs].fnproto */
@@ -74,5 +84,9 @@ struct ast {
 
 /* Parse the tokens in TOKS into an abstract syntax tree */
 struct ast parsetoks(struct lexemes toks);
+
+/* Starting from the node at indent I in AST, return the index of the next node
+   in AST that is of the same nest-depth as I */
+idx_t_ fwdnode(struct ast ast, idx_t_ i);
 
 #endif /* !ORYX_PARSER_H */

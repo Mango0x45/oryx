@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,67 +13,120 @@
 #include "parser.h"
 #include "types.h"
 
-static size_t codegenexpr(LLVMBuilderRef, struct type *, struct ast,
+struct cgctx {
+	LLVMModuleRef mod;
+	LLVMBuilderRef bob;
+	struct strview namespace;
+};
+
+static size_t codegendecl(struct cgctx, struct type *, struct ast,
+                          struct lexemes, size_t)
+	__attribute__((nonnull));
+static size_t codegenexpr(struct cgctx, struct type *, struct ast,
                           struct lexemes, size_t, LLVMValueRef *)
 	__attribute__((nonnull));
 
 static LLVMTypeRef type2llvm(struct type);
 
+/* TODO: Don’t do this? */
+#define lengthof(xs) (sizeof(xs) / sizeof(*(xs)))
+static struct {
+	struct strview key;
+	LLVMValueRef val;
+} constants[1024];
+static size_t constcnt;
+
 void
 codegen(const char *file, struct type *types, struct ast ast,
         struct lexemes toks)
 {
-	LLVMModuleRef mod = LLVMModuleCreateWithName("oryx");
-	LLVMSetSourceFileName(mod, file, strlen(file));
-	LLVMBuilderRef bob = LLVMCreateBuilder();
+	struct cgctx ctx = {0};
+	ctx.mod = LLVMModuleCreateWithName("oryx");
+	ctx.bob = LLVMCreateBuilder();
+	LLVMSetSourceFileName(ctx.mod, file, strlen(file));
 
 	for (size_t i = 0; i < ast.len;) {
 		// LLVMValueRef val;
 		assert(ast.kinds[i] == ASTDECL || ast.kinds[i] == ASTCDECL);
-		// if (ast.kids[i].rhs != AST_EMPTY && types[ast.kids[i].rhs] ==
-		// TYPE_FN) 	codegenfn(builder, types, ast, toks, i, &val); else
-		// 	codegenexpr(builder, types, ast, toks, i, &val);
+		i = codegendecl(ctx, types, ast, toks, i);
 
 		/* TODO: Temporary allocator */
-		struct strview sv = toks.strs[ast.lexemes[i]];
-		char *name = bufalloc(NULL, sv.len + 1, 1);
-		((uchar *)memcpy(name, sv.p, sv.len))[sv.len] = 0;
-
-		LLVMValueRef globl, init;
-		LLVMTypeRef vartype = type2llvm(types[i]);
-
-		globl = LLVMAddGlobal(mod, vartype, name);
-		LLVMSetGlobalConstant(globl, ast.kinds[i] == ASTCDECL);
-
-		if (ast.kids[i].rhs != AST_EMPTY) {
-			i = codegenexpr(bob, types, ast, toks, ast.kids[i].rhs, &init);
-			init = LLVMConstTrunc(init, vartype);
-		} else {
-			init = LLVMConstNull(vartype);
-			i += 2;
-		}
-
-		LLVMSetInitializer(globl, init);
-		LLVMSetLinkage(globl, LLVMPrivateLinkage);
-
-		free(name);
+		// struct strview sv = toks.strs[ast.lexemes[i]];
+		// char *name = bufalloc(NULL, sv.len + 1, 1);
+		// ((uchar *)memcpy(name, sv.p, sv.len))[sv.len] = 0;
+		//
+		// LLVMValueRef globl, init;
+		// LLVMTypeRef vartype = type2llvm(types[i]);
+		//
+		// globl = LLVMAddGlobal(mod, vartype, name);
+		// LLVMSetGlobalConstant(globl, ast.kinds[i] == ASTCDECL);
+		//
+		// if (ast.kids[i].rhs != AST_EMPTY) {
+		// 	i = codegenexpr(bob, types, ast, toks, ast.kids[i].rhs, &init);
+		// 	init = LLVMConstTrunc(init, vartype);
+		// } else {
+		// 	init = LLVMConstNull(vartype);
+		// 	i = fwdnode(ast, i);
+		// }
+		//
+		// LLVMSetInitializer(globl, init);
+		// LLVMSetLinkage(globl, LLVMPrivateLinkage);
+		//
+		// free(name);
 	}
 
-	LLVMDisposeBuilder(bob);
+	LLVMDisposeBuilder(ctx.bob);
 
 	char *error = NULL;
-	LLVMVerifyModule(mod, LLVMAbortProcessAction, &error);
+	LLVMVerifyModule(ctx.mod, LLVMAbortProcessAction, &error);
 	LLVMDisposeMessage(error);
 
-	LLVMDumpModule(mod);
-	LLVMDisposeModule(mod);
+	LLVMDumpModule(ctx.mod);
+	LLVMDisposeModule(ctx.mod);
 }
 
 size_t
-codegenexpr(LLVMBuilderRef builder, struct type *types, struct ast ast,
+codegendecl(struct cgctx ctx, struct type *types, struct ast ast,
+            struct lexemes toks, size_t i)
+{
+	struct strview ident = toks.strs[ast.lexemes[i]];
+
+	char *name;
+	if (ctx.namespace.len != 0) {
+		size_t namelen = ident.len + ctx.namespace.len + 1;
+		name = bufalloc(NULL, namelen + 1, 1);
+		sprintf(name, "%.*s.%.*s", (int)ctx.namespace.len, ctx.namespace.p,
+				(int)ident.len, ident.p);
+	} else {
+		name = bufalloc(NULL, ident.len + 1, 1);
+		memcpy(name, ident.p, ident.len);
+		name[ident.len] = 0;
+	}
+
+	LLVMValueRef val;
+	LLVMTypeRef vartype = type2llvm(types[i]);
+
+	if (ast.kids[i].rhs != AST_EMPTY) {
+		i = codegenexpr(ctx, types, ast, toks, ast.kids[i].rhs, &val);
+		val = LLVMConstTrunc(val, vartype);
+	} else {
+		i = fwdnode(ast, i);
+		val = LLVMConstNull(vartype);
+	}
+
+	LLVMValueRef globl = LLVMAddGlobal(ctx.mod, vartype, name);
+	LLVMSetInitializer(globl, val);
+	LLVMSetLinkage(globl, LLVMLinkerPrivateLinkage);
+
+	free(name);
+	return i;
+}
+
+size_t
+codegenexpr(struct cgctx ctx, struct type *types, struct ast ast,
             struct lexemes toks, size_t i, LLVMValueRef *v)
 {
-	(void)builder;
+	(void)ctx;
 	switch (ast.kinds[i]) {
 	case ASTNUMLIT: {
 		/* TODO: Arbitrary precision? */
