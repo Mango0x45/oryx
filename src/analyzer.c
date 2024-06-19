@@ -278,20 +278,20 @@ typechkblk(struct typechkctx ctx, struct evstack evs, struct type *types,
 bool
 typecompat(struct type lhs, struct type rhs)
 {
-	switch (lhs.kind) {
-	case TYPE_FN:
-		return lhs.ret == rhs.ret;
-	case TYPE_NUM:
-		if (rhs.size == 0)
-			return true;
-		return lhs.issigned == rhs.issigned && lhs.size >= rhs.size;
-	case TYPE_F16:
-	case TYPE_F32:
-	case TYPE_F64:
-		return lhs.size >= rhs.size;
-	case TYPE_RUNE:
-		return rhs.size == 0 || lhs.kind == rhs.kind;
-	}
+	/* Function types are compatible if they have the same parameter- and
+	   return types */
+	if (lhs.kind == TYPE_FN && rhs.kind == TYPE_FN)
+		return lhs.paramcnt == rhs.paramcnt && lhs.ret == rhs.ret;
+	if (lhs.kind == TYPE_FN || rhs.kind == TYPE_FN)
+		return false;
 
-	__builtin_unreachable();
+	/* At this point we only have numeric types left */
+
+	/* Untyped numeric types are compatible with all numeric types */
+	if (lhs.size == 0 || rhs.size == 0)
+		return true;
+
+	/* Two typed numeric types are only compatible if they have the same size
+	   and sign */
+	return lhs.issigned == rhs.issigned && lhs.size == rhs.size;
 }

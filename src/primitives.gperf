@@ -28,7 +28,7 @@ u32,  { TYPE_NUM,  4, false }
 u64,  { TYPE_NUM,  8, false }
 u128, { TYPE_NUM, 16, false }
 uint, { TYPE_NUM,  8, false }
-rune, { TYPE_RUNE, 4, true  }
+rune, { TYPE_NUM , 4, true  }
 %%
 const struct type *
 typelookup(const uchar *p, size_t len)
