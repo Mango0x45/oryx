@@ -10,6 +10,11 @@
 #include "types.h"
 
 enum {
+	/* The first four AST tokens are declarations.  A declaration is any token T
+	   for which ‘T <= _AST_DECLS_END’ holds.  Declarations can also be made
+	   public by using the ‘pub’ keyword, and you can tell if a declaration is
+	   public by if the LSB is set. */
+
 	/* Variable declaration, lhs and rhs may be unused
 	   ‘x: lhs = rhs’ */
 	ASTDECL,
