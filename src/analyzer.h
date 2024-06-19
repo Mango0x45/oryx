@@ -29,7 +29,7 @@ struct type {
 	idx_t_ paramcnt;
 };
 
-struct type *analyzeast(struct ast, struct lexemes)
+struct type *analyzeprog(struct ast, struct lexemes)
 	__attribute__((returns_nonnull));
 
 #endif /* !ORYX_ANALYZER_H */

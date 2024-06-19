@@ -5,8 +5,9 @@
 #	define likely(x)   __builtin_expect(!!(x), 1)
 #	define unlikely(x) __builtin_expect(!!(x), 0)
 #else
+#	include <stdlib.h>
 #	define __attribute__(x)
-#	define __builtin_unreachable() (((char *)0)[0] = 0)
+#	define __builtin_unreachable() abort()
 #	define likely(x)               (x)
 #	define unlikely(x)             (x)
 #endif

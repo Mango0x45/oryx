@@ -24,40 +24,32 @@ struct evstack {
 	size_t len, cap;
 };
 
-struct typechkctx {
+struct azctx {
 	struct type fnret;
 	struct strview decl;
+	bool chkrets;
 };
 
-static void typechkast(struct evstack, struct type *, struct ast,
+static void analyzeast(struct evstack, struct type *, struct ast,
                        struct lexemes)
 	__attribute__((nonnull));
-static idx_t_ typechkdecl(struct typechkctx, struct evstack, struct type *,
-                          struct ast, struct lexemes, idx_t_)
+
+typedef idx_t_ analyzer(struct azctx, struct evstack, struct type *, struct ast,
+                        struct lexemes, idx_t_)
 	__attribute__((nonnull));
-static idx_t_ typechkstmt(struct typechkctx, struct evstack, struct type *,
-                          struct ast, struct lexemes, idx_t_)
-	__attribute__((nonnull));
-static idx_t_ typechkexpr(struct typechkctx, struct evstack, struct type *,
-                          struct ast, struct lexemes, idx_t_)
-	__attribute__((nonnull));
-static idx_t_ typechkfn(struct typechkctx, struct evstack, struct type *,
-                        struct ast, struct lexemes, idx_t_)
-	__attribute__((nonnull));
-static idx_t_ typechkblk(struct typechkctx, struct evstack, struct type *,
-                         struct ast, struct lexemes, idx_t_)
-	__attribute__((nonnull));
+static analyzer analyzeblk, analyzedecl, analyzeexpr, analyzefn, analyzestmt;
 
 static const struct type *typegrab(struct ast, struct lexemes, idx_t_)
 	__attribute__((returns_nonnull));
 static bool typecompat(struct type, struct type);
+static bool returns(struct ast, idx_t_);
 
 /* Defined in primitives.gperf */
 const struct type *typelookup(const uchar *, size_t)
 	__attribute__((nonnull));
 
 struct type *
-analyzeast(struct ast ast, struct lexemes toks)
+analyzeprog(struct ast ast, struct lexemes toks)
 {
 	arena a = NULL;
 	struct evstack evs = {.cap = 16};
@@ -65,7 +57,7 @@ analyzeast(struct ast ast, struct lexemes toks)
 	struct type *types = bufalloc(NULL, ast.len, sizeof(*types));
 	memset(types, 0, ast.len * sizeof(*types));
 
-	typechkast(evs, types, ast, toks);
+	analyzeast(evs, types, ast, toks);
 
 	arena_free(&a);
 	free(evs.buf);
@@ -83,7 +75,7 @@ typegrab(struct ast ast, struct lexemes toks, idx_t_ i)
 }
 
 void
-typechkast(struct evstack evs, struct type *types, struct ast ast,
+analyzeast(struct evstack evs, struct type *types, struct ast ast,
            struct lexemes toks)
 {
 	struct environ ev = {.cap = 16};
@@ -102,17 +94,17 @@ typechkast(struct evstack evs, struct type *types, struct ast ast,
 	evs.buf[0] = ev;
 	evs.len = 1;
 
-	struct typechkctx ctx = {0};
+	struct azctx ctx = {0};
 	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
 		assert(ast.kinds[i] <= _AST_DECLS_END);
-		typechkdecl(ctx, evs, types, ast, toks, i);
+		analyzedecl(ctx, evs, types, ast, toks, i);
 	}
 
 	free(ev.buf);
 }
 
 idx_t_
-typechkdecl(struct typechkctx ctx, struct evstack evs, struct type *types,
+analyzedecl(struct azctx ctx, struct evstack evs, struct type *types,
             struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	ctx.decl = toks.strs[ast.lexemes[i]];
@@ -129,7 +121,7 @@ typechkdecl(struct typechkctx ctx, struct evstack evs, struct type *types,
 	if (p.lhs != AST_EMPTY)
 		ltype = *typegrab(ast, toks, p.lhs);
 	if (p.rhs != AST_EMPTY) {
-		ni = typechkexpr(ctx, evs, types, ast, toks, p.rhs);
+		ni = analyzeexpr(ctx, evs, types, ast, toks, p.rhs);
 		rtype = types[p.rhs];
 	} else
 		ni = fwdnode(ast, i);
@@ -144,13 +136,13 @@ typechkdecl(struct typechkctx ctx, struct evstack evs, struct type *types,
 }
 
 idx_t_
-typechkstmt(struct typechkctx ctx, struct evstack evs, struct type *types,
+analyzestmt(struct azctx ctx, struct evstack evs, struct type *types,
             struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return typechkdecl(ctx, evs, types, ast, toks, i);
+		return analyzedecl(ctx, evs, types, ast, toks, i);
 	case ASTRET: {
 		idx_t_ expr = ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
@@ -160,7 +152,7 @@ typechkstmt(struct typechkctx ctx, struct evstack evs, struct type *types,
 		} else if (ctx.fnret.kind == TYPE_UNSET)
 			err("analyzer: Function has no return value");
 
-		idx_t_ ni = typechkexpr(ctx, evs, types, ast, toks, ast.kids[i].rhs);
+		idx_t_ ni = analyzeexpr(ctx, evs, types, ast, toks, ast.kids[i].rhs);
 		if (!typecompat(ctx.fnret, types[ast.kids[i].rhs]))
 			err("analyzer: Return type mismatch");
 		return ni;
@@ -172,7 +164,7 @@ typechkstmt(struct typechkctx ctx, struct evstack evs, struct type *types,
 }
 
 idx_t_
-typechkexpr(struct typechkctx ctx, struct evstack evs, struct type *types,
+analyzeexpr(struct azctx ctx, struct evstack evs, struct type *types,
             struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
@@ -203,7 +195,7 @@ typechkexpr(struct typechkctx ctx, struct evstack evs, struct type *types,
 				switch (types[j].kind) {
 				case TYPE_UNSET:
 					evs.len = lvl + 1;
-					typechkdecl(ctx, evs, types, ast, toks, ev.buf[j].astidx);
+					analyzedecl(ctx, evs, types, ast, toks, ev.buf[j].astidx);
 					break;
 				case TYPE_CHECKING:
 					err("analyzer: Circular definition of ‘%.*s’", (int)sv.len,
@@ -218,7 +210,7 @@ typechkexpr(struct typechkctx ctx, struct evstack evs, struct type *types,
 		err("analyzer: Unknown constant ‘%.*s’", (int)sv.len, sv.p);
 	}
 	case ASTFN:
-		return typechkfn(ctx, evs, types, ast, toks, i);
+		return analyzefn(ctx, evs, types, ast, toks, i);
 	default:
 		err("analyzer: Unexpected AST kind %u", ast.kinds[i]);
 		__builtin_unreachable();
@@ -226,7 +218,7 @@ typechkexpr(struct typechkctx ctx, struct evstack evs, struct type *types,
 }
 
 idx_t_
-typechkfn(struct typechkctx ctx, struct evstack evs, struct type *types,
+analyzefn(struct azctx ctx, struct evstack evs, struct type *types,
           struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	struct type t = {.kind = TYPE_FN};
@@ -236,15 +228,15 @@ typechkfn(struct typechkctx ctx, struct evstack evs, struct type *types,
 	if (ast.kids[proto].rhs != AST_EMPTY) {
 		t.ret = typegrab(ast, toks, ast.kids[proto].rhs);
 		ctx.fnret = *t.ret;
+		ctx.chkrets = true;
 	} else
 		ctx.fnret.kind = TYPE_UNSET;
 	types[i] = t;
-	idx_t_ ni = typechkblk(ctx, evs, types, ast, toks, p.rhs);
-	return ni;
+	return analyzeblk(ctx, evs, types, ast, toks, p.rhs);
 }
 
 idx_t_
-typechkblk(struct typechkctx ctx, struct evstack evs, struct type *types,
+analyzeblk(struct azctx ctx, struct evstack evs, struct type *types,
            struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	struct environ ev = {.cap = 16};
@@ -268,11 +260,35 @@ typechkblk(struct typechkctx ctx, struct evstack evs, struct type *types,
 	}
 	evs.buf[evs.len++] = ev;
 
-	for (i = p.lhs; i <= p.rhs; i = typechkstmt(ctx, evs, types, ast, toks, i))
-		;
+	bool chkrets = ctx.chkrets, hasret = false;
+	ctx.chkrets = false;
+
+	for (i = p.lhs; i <= p.rhs;) {
+		if (chkrets && returns(ast, i))
+			hasret = true;
+		i = analyzestmt(ctx, evs, types, ast, toks, i);
+	}
+
+	if (chkrets && !hasret)
+		err("analyzer: Function doesn’t return on all paths");
 
 	free(ev.buf);
 	return i;
+}
+
+bool
+returns(struct ast ast, idx_t_ i)
+{
+	switch (ast.kinds[i]) {
+	case ASTDECL:
+	case ASTPDECL:
+	case ASTCDECL:
+	case ASTPCDECL:
+		return false;
+	case ASTRET:
+		return true;
+	}
+	__builtin_unreachable();
 }
 
 bool
