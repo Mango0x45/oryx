@@ -56,7 +56,7 @@ static void cc(void *);
 static void gperf(void *);
 static void ld(void);
 static bool tagvalid(const char *);
-static void ckd_cpu_flags(void);
+static void chk_cpu_flags(void);
 static int globerr(const char *, int);
 
 static void
@@ -113,7 +113,7 @@ main(int argc, char **argv)
 		return EXIT_SUCCESS;
 	}
 
-	ckd_cpu_flags();
+	chk_cpu_flags();
 
 	int procs = nproc();
 	if (procs == -1)
@@ -244,7 +244,7 @@ tagvalid(const char *file)
 }
 
 void
-ckd_cpu_flags(void)
+chk_cpu_flags(void)
 {
 	if (!rflag)
 		return;
