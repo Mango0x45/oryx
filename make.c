@@ -153,7 +153,7 @@ cc(void *arg)
 	struct strs cmd = {0};
 	char *dst = swpext(arg, "o"), *src = arg;
 
-	if (!fflag && !foutdatedl(dst, src))
+	if (!fflag && fmdnewer(dst, src))
 		goto out;
 
 	strspushenvl(&cmd, "CC", "cc");
@@ -183,7 +183,7 @@ gperf(void *arg)
 	struct strs cmd = {0};
 	char *dst = swpext(arg, "gen.c"), *src = arg;
 
-	if (!fflag && !foutdatedl(dst, src))
+	if (!fflag && fmdnewer(dst, src))
 		goto out;
 
 	strspushl(&cmd, "gperf", src, "--output-file", dst);
@@ -217,7 +217,7 @@ ld(void)
 	for (size_t i = 0; i < g.gl_pathc; i++) {
 		if (!tagvalid(g.gl_pathv[i]))
 			continue;
-		if (foutdatedl(TARGET, g.gl_pathv[i]))
+		if (fmdolder(TARGET, g.gl_pathv[i]))
 			dobuild = true;
 		strspushl(&cmd, g.gl_pathv[i]);
 	}
