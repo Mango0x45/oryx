@@ -49,6 +49,7 @@ codegen(const char *file, struct type *types, struct ast ast,
 	if (LLVMVerifyModule(ctx.mod, LLVMReturnStatusAction, &error) == 1)
 		err("codegen: %s", error);
 
+	LLVMDisposeMessage(error);
 	LLVMDumpModule(ctx.mod);
 	LLVMDisposeModule(ctx.mod);
 	LLVMContextDispose(ctx.ctx);
