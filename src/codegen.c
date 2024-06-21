@@ -3,6 +3,7 @@
 
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
+#include <llvm-c/ExecutionEngine.h>
 
 #include "alloc.h"
 #include "analyzer.h"
@@ -28,6 +29,8 @@ void
 codegen(const char *file, struct type *types, struct ast ast,
         struct lexemes toks)
 {
+	char *triple = LLVMGetDefaultTargetTriple();
+
 	struct cgctx ctx;
 	ctx.a           = NULL;
 	ctx.namespace.p = NULL;
@@ -35,6 +38,8 @@ codegen(const char *file, struct type *types, struct ast ast,
 	ctx.mod         = LLVMModuleCreateWithNameInContext("oryx", ctx.ctx);
 	ctx.bob         = LLVMCreateBuilderInContext(ctx.ctx);
 	LLVMSetSourceFileName(ctx.mod, file, strlen(file));
+	LLVMSetTarget(ctx.mod, triple);
+	LLVMDisposeMessage(triple);
 
 	arena_free(&ctx.a);
 
