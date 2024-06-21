@@ -5,7 +5,8 @@
 #include "lexer.h"
 #include "parser.h"
 
-void codegen(const char *, struct type *, struct ast, struct lexemes)
+void codegen(const char *, struct scope *, struct type *, struct ast,
+             struct lexemes)
 	__attribute__((nonnull));
 
 #endif /* !ORYX_CODEGEN_H */
