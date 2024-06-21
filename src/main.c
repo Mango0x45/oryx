@@ -37,9 +37,14 @@ main(int argc, char **argv)
 	struct lexemes toks = lexstring(src, srclen);
 	struct ast ast = parsetoks(toks);
 	analyzeprog(ast, toks, &a, &types, &scps, &folds);
-	codegen(argv[1], scps, types, ast, toks);
+	codegen(argv[1], folds, scps, types, ast, toks);
 
 #if DEBUG
+	for (size_t i = 0; i < ast.len; i++) {
+		if ((*folds[i])._mp_den._mp_d != NULL)
+			mpq_clear(folds[i]);
+	}
+
 	free(folds);
 	free(scps);
 	free(src);

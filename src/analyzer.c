@@ -108,6 +108,7 @@ analyzeprog(struct ast ast, struct lexemes toks, arena *a, struct type **types,
 	analyzeast(*scps, *types, ast, toks, a);
 
 	*folds = bufalloc(NULL, ast.len, sizeof(**folds));
+	memset(*folds, 0, ast.len * sizeof(**folds));
 	constfold(*folds, *scps, *types, ast, toks, a);
 }
 
@@ -401,7 +402,8 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, struct scope *scps,
 		}
 		buf[len] = 0;
 
-		(void)mpq_set_str(folds[i], buf, 10);
+		int ret = mpq_set_str(folds[i], buf, 10);
+		assert(ret == 0);
 
 		free(buf);
 		return fwdnode(ast, i);
@@ -427,12 +429,24 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, struct scope *scps,
 					break;
 				case ASTCDECL:
 				case ASTPCDECL: {
-					*folds[i] = *folds[*ip];
+					idx_t_ expr = ast.kids[*ip].rhs;
+					assert(expr != AST_EMPTY);
+#if DEBUG
+					mpq_init(folds[i]);
+					mpq_set(folds[i], folds[expr]);
+#else
+					*folds[i] = *folds[expr];
+#endif
 					if ((*folds[i])._mp_den._mp_d == NULL) {
 						ctx.si = lvl;
 						(void)constfolddecl(ctx, folds, scps, types, ast, toks,
 						                    *ip);
-						*folds[i] = *folds[*ip];
+#if DEBUG
+						mpq_init(folds[i]);
+						mpq_set(folds[i], folds[expr]);
+#else
+						*folds[i] = *folds[expr];
+#endif
 						assert((*folds[i])._mp_den._mp_d != NULL);
 					}
 					break;
