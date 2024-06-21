@@ -10,33 +10,64 @@
 #include "common.h"
 #include "errors.h"
 #include "parser.h"
+#include "strview.h"
 #include "types.h"
 
-struct environ {
-	struct declaration {
-		idx_t_ astidx;
-	} *buf;
+/* A hashmap mapping symbol names to their indicies in the AST */
+typedef struct symtab {
+	struct symtab *child[4];
+	struct strview key;
+	idx_t_ val;
+} symtab;
+
+/* A dynamic array of scopes */
+struct scopes {
+	struct scope *buf;
 	size_t len, cap;
 };
 
-struct evstack {
-	struct environ *buf;
-	size_t len, cap;
-};
-
+/* Analyzer context; keeps track of the state of static analysis */
 struct azctx {
+	/* An arena allocator */
+	arena *a;
+
+	/* The return type of the function being analyzed */
 	struct type fnret;
+
+	/* The name of the symbol being declared.  This is necessary to allow
+	   for ‘X :: X’ to be treated as shadowing and not a circular
+	   definition */
 	struct strview decl;
+
+	/* If we need to check for return statements.  Only true for the
+	   outer body-block of a function that returns a value. */
 	bool chkrets;
+
+	/* The index of the current scope in the scopes array */
+	idx_t_ si;
 };
 
-static void analyzeast(struct evstack, struct type *, struct ast,
-                       struct lexemes)
+static void analyzeast(struct scope *, struct type *, struct ast,
+                       struct lexemes, arena *)
 	__attribute__((nonnull));
 
-typedef idx_t_ analyzer(struct azctx, struct evstack, struct type *, struct ast,
+/* Perform a pass over the entire AST and return an array of symbol
+   tables, one for each scope in the program */
+static struct scope *gensymtabs(struct ast, struct lexemes, arena *)
+	__attribute__((returns_nonnull, nonnull));
+
+/* Find all the unordered symbols in the scope delimited by the inclusive
+   indicies BEG and END in the AST, and accumulate them into a symbol
+   table appended to the symbol table list.  UP is the index of the
+   previous scopes symbol table in the symbol table list. */
+static void find_unordered_syms(struct scopes *, struct ast, struct lexemes,
+                                idx_t_ up, idx_t_ beg, idx_t_ end, arena *)
+	__attribute__((nonnull));
+
+typedef idx_t_ analyzer(struct azctx, struct scope *, struct type *, struct ast,
                         struct lexemes, idx_t_)
 	__attribute__((nonnull));
+
 static analyzer analyzeblk, analyzedecl, analyzeexpr, analyzefn, analyzestmt;
 
 static const struct type *typegrab(struct ast, struct lexemes, idx_t_)
@@ -44,24 +75,70 @@ static const struct type *typegrab(struct ast, struct lexemes, idx_t_)
 static bool typecompat(struct type, struct type);
 static bool returns(struct ast, idx_t_);
 
+/* Index the symbol table M with the key SV, returning a pointer to the
+   value.  If no entry exists and A is non-null, a pointer to a newly
+   allocated (and zeroed) value is returned, NULL otherwise. */
+static idx_t_ *symtab_insert(symtab **m, struct strview sv, arena *a)
+	__attribute__((nonnull(1)));
+
 /* Defined in primitives.gperf */
 const struct type *typelookup(const uchar *, size_t)
 	__attribute__((nonnull));
 
-struct type *
-analyzeprog(struct ast ast, struct lexemes toks)
+void
+analyzeprog(struct ast ast, struct lexemes toks, arena *a, struct type **types,
+            struct scope **scps)
 {
-	arena a = NULL;
-	struct evstack evs = {.cap = 16};
-	evs.buf = bufalloc(NULL, evs.cap, sizeof(*evs.buf));
-	struct type *types = bufalloc(NULL, ast.len, sizeof(*types));
-	memset(types, 0, ast.len * sizeof(*types));
+	*types = bufalloc(NULL, ast.len, sizeof(**types));
+	memset(*types, 0, ast.len * sizeof(**types));
 
-	analyzeast(evs, types, ast, toks);
+	*scps = gensymtabs(ast, toks, a);
+	analyzeast(*scps, *types, ast, toks, a);
+}
 
-	arena_free(&a);
-	free(evs.buf);
-	return types;
+struct scope *
+gensymtabs(struct ast ast, struct lexemes toks, arena *a)
+{
+	struct scopes scps = {.cap = 32};
+	scps.buf = bufalloc(NULL, scps.cap, sizeof(*scps.buf));
+	find_unordered_syms(&scps, ast, toks, 0, 0, ast.len - 1, a);
+	return scps.buf;
+}
+
+void
+find_unordered_syms(struct scopes *scps, struct ast ast, struct lexemes toks,
+                    idx_t_ up, idx_t_ beg, idx_t_ end, arena *a)
+{
+	if (scps->len == scps->cap) {
+		scps->cap *= 2;
+		scps->buf = bufalloc(scps->buf, scps->cap, sizeof(*scps->buf));
+	}
+
+	struct scope *scp = scps->buf + scps->len++;
+	*scp = (struct scope){
+		.i = beg,
+		.up = up,
+		.map = NULL,
+	};
+
+	for (idx_t_ i = beg; likely(i <= end); i++) {
+		bool globl_var = ast.kinds[i] <= _AST_DECLS_END && beg == 0;
+		bool const_var = (ast.kinds[i] | 1) == ASTPCDECL;
+
+		if (globl_var || const_var) {
+			struct strview sv = toks.strs[ast.lexemes[i]];
+			idx_t_ *p = symtab_insert(&scp->map, sv, a);
+			if (*p != 0) {
+				err("analyzer: Symbol ‘%.*s’ declared multiple times",
+				    SV_PRI_ARGS(sv));
+			}
+			*p = i;
+		} else if (ast.kinds[i] == ASTBLK) {
+			struct pair p = ast.kids[i];
+			find_unordered_syms(scps, ast, toks, beg, p.lhs, p.rhs, a);
+			i = p.rhs;
+		}
+	}
 }
 
 const struct type *
@@ -75,39 +152,31 @@ typegrab(struct ast ast, struct lexemes toks, idx_t_ i)
 }
 
 void
-analyzeast(struct evstack evs, struct type *types, struct ast ast,
-           struct lexemes toks)
+analyzeast(struct scope *scps, struct type *types, struct ast ast,
+           struct lexemes toks, arena *a)
 {
-	struct environ ev = {.cap = 16};
-	ev.buf = bufalloc(NULL, ev.cap, sizeof(*ev.buf));
-
+	struct azctx ctx = {.a = a};
 	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
 		assert(ast.kinds[i] <= _AST_DECLS_END);
-		if (ev.len == ev.cap) {
-			ev.cap *= 2;
-			ev.buf = bufalloc(ev.buf, ev.cap, sizeof(*ev.buf));
-		}
-		ev.buf[ev.len++] = (struct declaration){.astidx = i};
+		analyzedecl(ctx, scps, types, ast, toks, i);
 	}
-
-	assert(evs.cap > 0);
-	evs.buf[0] = ev;
-	evs.len = 1;
-
-	struct azctx ctx = {0};
-	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
-		assert(ast.kinds[i] <= _AST_DECLS_END);
-		analyzedecl(ctx, evs, types, ast, toks, i);
-	}
-
-	free(ev.buf);
 }
 
 idx_t_
-analyzedecl(struct azctx ctx, struct evstack evs, struct type *types,
+analyzedecl(struct azctx ctx, struct scope *scps, struct type *types,
             struct ast ast, struct lexemes toks, idx_t_ i)
 {
-	ctx.decl = toks.strs[ast.lexemes[i]];
+	struct strview sv = toks.strs[ast.lexemes[i]];
+	if (ctx.si > 0 && (ast.kinds[i] | 1) == ASTPDECL) {
+		idx_t_ *ip = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
+		if (*ip == 0)
+			*ip = i;
+		else {
+			err("analyzer: Variable ‘%.*s’ declared multiple times",
+				SV_PRI_ARGS(sv));
+		}
+	}
+
 	types[i].kind = TYPE_CHECKING;
 
 	struct pair p = ast.kids[i];
@@ -121,7 +190,8 @@ analyzedecl(struct azctx ctx, struct evstack evs, struct type *types,
 	if (p.lhs != AST_EMPTY)
 		ltype = *typegrab(ast, toks, p.lhs);
 	if (p.rhs != AST_EMPTY) {
-		ni = analyzeexpr(ctx, evs, types, ast, toks, p.rhs);
+		ctx.decl = sv;
+		ni = analyzeexpr(ctx, scps, types, ast, toks, p.rhs);
 		rtype = types[p.rhs];
 	} else
 		ni = fwdnode(ast, i);
@@ -136,13 +206,13 @@ analyzedecl(struct azctx ctx, struct evstack evs, struct type *types,
 }
 
 idx_t_
-analyzestmt(struct azctx ctx, struct evstack evs, struct type *types,
+analyzestmt(struct azctx ctx, struct scope *scps, struct type *types,
             struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return analyzedecl(ctx, evs, types, ast, toks, i);
+		return analyzedecl(ctx, scps, types, ast, toks, i);
 	case ASTRET: {
 		idx_t_ expr = ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
@@ -152,19 +222,18 @@ analyzestmt(struct azctx ctx, struct evstack evs, struct type *types,
 		} else if (ctx.fnret.kind == TYPE_UNSET)
 			err("analyzer: Function has no return value");
 
-		idx_t_ ni = analyzeexpr(ctx, evs, types, ast, toks, ast.kids[i].rhs);
+		idx_t_ ni = analyzeexpr(ctx, scps, types, ast, toks, ast.kids[i].rhs);
 		if (!typecompat(ctx.fnret, types[ast.kids[i].rhs]))
 			err("analyzer: Return type mismatch");
 		return ni;
 	}
 	default:
-		assert(!"unreachable");
 		__builtin_unreachable();
 	}
 }
 
 idx_t_
-analyzeexpr(struct azctx ctx, struct evstack evs, struct type *types,
+analyzeexpr(struct azctx ctx, struct scope *scps, struct type *types,
             struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
@@ -176,49 +245,44 @@ analyzeexpr(struct azctx ctx, struct evstack evs, struct type *types,
 	case ASTIDENT: {
 		struct strview sv = toks.strs[ast.lexemes[i]];
 
-		for (size_t lvl = evs.len; lvl-- > 0;) {
-			struct environ ev = evs.buf[lvl];
-			/* TODO: Binary search */
-			for (size_t j = 0; j < ev.len; j++) {
-				struct strview sv2 = toks.strs[ast.lexemes[ev.buf[j].astidx]];
-				if (sv.len != sv2.len || memcmp(sv.p, sv2.p, sv.len) != 0)
-					continue;
+		/* Variable shadowing */
+		if (strview_eq(sv, ctx.decl) && ctx.si > 0)
+			ctx.si--;
 
-				/* We need this to allow shadowing in situations like
-				   FOO :FOO */
-				if (lvl == evs.len - 1 && sv.len == ctx.decl.len
-				    && memcmp(sv.p, ctx.decl.p, sv.len) == 0)
-				{
+		for (idx_t_ lvl = ctx.si;;) {
+			struct scope scp = scps[lvl];
+			idx_t_ *ip = symtab_insert(&scp.map, sv, NULL);
+
+			if (ip == NULL) {
+				if (lvl == 0)
 					break;
-				}
-
-				switch (types[j].kind) {
+				lvl = scp.up;
+			} else {
+				switch (types[*ip].kind) {
 				case TYPE_UNSET:
-					evs.len = lvl + 1;
-					analyzedecl(ctx, evs, types, ast, toks, ev.buf[j].astidx);
+					ctx.si = lvl;
+					analyzedecl(ctx, scps, types, ast, toks, *ip);
 					break;
 				case TYPE_CHECKING:
-					err("analyzer: Circular definition of ‘%.*s’", (int)sv.len,
-					    sv.p);
+					err("analyzer: Circular definition of ‘%.*s’", SV_PRI_ARGS(sv));
 				}
 
-				types[i] = types[j];
+				types[i] = types[*ip];
 				return i + 1;
 			}
 		}
 
-		err("analyzer: Unknown constant ‘%.*s’", (int)sv.len, sv.p);
+		err("analyzer: Unknown symbol ‘%.*s’", SV_PRI_ARGS(sv));
 	}
 	case ASTFN:
-		return analyzefn(ctx, evs, types, ast, toks, i);
+		return analyzefn(ctx, scps, types, ast, toks, i);
 	default:
-		err("analyzer: Unexpected AST kind %u", ast.kinds[i]);
 		__builtin_unreachable();
 	}
 }
 
 idx_t_
-analyzefn(struct azctx ctx, struct evstack evs, struct type *types,
+analyzefn(struct azctx ctx, struct scope *scps, struct type *types,
           struct ast ast, struct lexemes toks, idx_t_ i)
 {
 	struct type t = {.kind = TYPE_FN};
@@ -232,33 +296,17 @@ analyzefn(struct azctx ctx, struct evstack evs, struct type *types,
 	} else
 		ctx.fnret.kind = TYPE_UNSET;
 	types[i] = t;
-	return analyzeblk(ctx, evs, types, ast, toks, p.rhs);
+	return analyzeblk(ctx, scps, types, ast, toks, p.rhs);
 }
 
 idx_t_
-analyzeblk(struct azctx ctx, struct evstack evs, struct type *types,
+analyzeblk(struct azctx ctx, struct scope *scps, struct type *types,
            struct ast ast, struct lexemes toks, idx_t_ i)
 {
-	struct environ ev = {.cap = 16};
-	ev.buf = bufalloc(NULL, ev.cap, sizeof(*ev.buf));
-
 	struct pair p = ast.kids[i];
 
-	for (idx_t_ i = p.lhs; likely(i < p.rhs); i = fwdnode(ast, i)) {
-		if (ast.kinds[i] != ASTCDECL)
-			continue;
-		if (ev.len == ev.cap) {
-			ev.cap *= 2;
-			ev.buf = bufalloc(ev.buf, ev.cap, sizeof(*ev.buf));
-		}
-		ev.buf[ev.len++] = (struct declaration){.astidx = i};
-	}
-
-	if (evs.len == evs.cap) {
-		evs.cap *= 2;
-		evs.buf = bufalloc(evs.buf, evs.cap, sizeof(*evs.buf));
-	}
-	evs.buf[evs.len++] = ev;
+	while (scps[ctx.si].i != p.lhs)
+		ctx.si++;
 
 	bool chkrets = ctx.chkrets, hasret = false;
 	ctx.chkrets = false;
@@ -266,13 +314,11 @@ analyzeblk(struct azctx ctx, struct evstack evs, struct type *types,
 	for (i = p.lhs; i <= p.rhs;) {
 		if (chkrets && returns(ast, i))
 			hasret = true;
-		i = analyzestmt(ctx, evs, types, ast, toks, i);
+		i = analyzestmt(ctx, scps, types, ast, toks, i);
 	}
-
 	if (chkrets && !hasret)
 		err("analyzer: Function doesn’t return on all paths");
 
-	free(ev.buf);
 	return i;
 }
 
@@ -311,4 +357,19 @@ typecompat(struct type lhs, struct type rhs)
 	   and sign and are either both integral or both floats */
 	return lhs.issigned == rhs.issigned && lhs.isfloat == rhs.isfloat
 	    && lhs.size == rhs.size;
+}
+
+idx_t_ *
+symtab_insert(symtab **m, struct strview k, arena *a)
+{
+	for (uint64_t h = strview_hash(k); *m; h <<= 2) {
+		if (strview_eq(k, (*m)->key))
+			return &(*m)->val;
+		m = &(*m)->child[h >> 62];
+	}
+	if (a == NULL)
+		return NULL;
+	*m = arena_new(a, symtab, 1);
+	(*m)->key = k;
+	return &(*m)->val;
 }

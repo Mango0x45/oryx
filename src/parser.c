@@ -10,6 +10,7 @@
 #include "common.h"
 #include "errors.h"
 #include "parser.h"
+#include "strview.h"
 
 #if DEBUG
 #	define AST_DFLT_CAP (8)
@@ -114,16 +115,17 @@ idx_t_
 parsedecl(struct ast *ast, struct lexemes toks, bool toplvl)
 {
 	idx_t_ i = astalloc(ast);
-	ast->lexemes[i] = toksidx;
 
 	bool pub;
-	if (toplvl && toks.kinds[toksidx] == LEXIDENT && toks.strs[toksidx].len == 3
-	    && memcmp("pub", toks.strs[toksidx].p, 3) == 0)
+	if (toplvl && toks.kinds[toksidx] == LEXIDENT
+	    && strview_eq(SV("pub"), toks.strs[toksidx]))
 	{
 		pub = true;
-		toksidx++;
-	} else
+		ast->lexemes[i] = ++toksidx;
+	} else {
 		pub = false;
+		ast->lexemes[i] = toksidx;
+	}
 
 	if (toks.kinds[toksidx++] != LEXIDENT)
 		err("parser: Expected identifier");
@@ -230,7 +232,7 @@ parsestmt(struct ast *ast, struct lexemes toks)
 		err("parser: Expected identifier");
 
 	struct strview sv = toks.strs[toksidx];
-	if (sv.len == 6 && memcmp(sv.p, "return", 6) == 0) {
+	if (strview_eq(SV("return"), sv)) {
 		i = astalloc(ast);
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;

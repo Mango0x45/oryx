@@ -12,6 +12,7 @@
 #include "common.h"
 #include "errors.h"
 #include "lexer.h"
+#include "strview.h"
 #include "unicode.h"
 
 #if DEBUG

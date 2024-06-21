@@ -147,6 +147,8 @@ main(int argc, char **argv)
 void
 cc(void *arg)
 {
+	if (strcmp(arg, "src/codegen.c") == 0)
+		return;
 	if (!tagvalid(arg))
 		return;
 

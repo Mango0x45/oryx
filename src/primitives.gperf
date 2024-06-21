@@ -16,21 +16,21 @@
 
 struct typeslot { char *name; struct type inner; };
 %%
-i8,   { TYPE_NUM,  1, true,  false }
-i16,  { TYPE_NUM,  2, true,  false }
-i32,  { TYPE_NUM,  4, true,  false }
-i64,  { TYPE_NUM,  8, true,  false }
-i128, { TYPE_NUM, 16, true,  false }
-int,  { TYPE_NUM,  8, true,  false }
-u8,   { TYPE_NUM,  1, false, false }
-u16,  { TYPE_NUM,  2, false, false }
-u32,  { TYPE_NUM,  4, false, false }
-u64,  { TYPE_NUM,  8, false, false }
-u128, { TYPE_NUM, 16, false, false }
-uint, { TYPE_NUM,  8, false, false }
-rune, { TYPE_NUM , 4, true,  false }
-f32,  { TYPE_NUM,  4, true,  true  }
-f64,  { TYPE_NUM,  8, true,  true  }
+i8,   { TYPE_NUM, {.size =  1, .issigned=true,  .isfloat=false} }
+i16,  { TYPE_NUM, {.size =  2, .issigned=true,  .isfloat=false} }
+i32,  { TYPE_NUM, {.size =  4, .issigned=true,  .isfloat=false} }
+i64,  { TYPE_NUM, {.size =  8, .issigned=true,  .isfloat=false} }
+i128, { TYPE_NUM, {.size = 16, .issigned=true,  .isfloat=false} }
+int,  { TYPE_NUM, {.size =  8, .issigned=true,  .isfloat=false} }
+u8,   { TYPE_NUM, {.size =  1, .issigned=false, .isfloat=false} }
+u16,  { TYPE_NUM, {.size =  2, .issigned=false, .isfloat=false} }
+u32,  { TYPE_NUM, {.size =  4, .issigned=false, .isfloat=false} }
+u64,  { TYPE_NUM, {.size =  8, .issigned=false, .isfloat=false} }
+u128, { TYPE_NUM, {.size = 16, .issigned=false, .isfloat=false} }
+uint, { TYPE_NUM, {.size =  8, .issigned=false, .isfloat=false} }
+rune, { TYPE_NUM ,{.size =  4, .issigned=true,  .isfloat=false} }
+f32,  { TYPE_NUM, {.size =  4, .issigned=true,  .isfloat=true } }
+f64,  { TYPE_NUM, {.size =  8, .issigned=true,  .isfloat=true } }
 %%
 const struct type *
 typelookup(const uchar *p, size_t len)

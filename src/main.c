@@ -27,16 +27,22 @@ main(int argc, char **argv)
 	size_t srclen;
 	char *src = readfile(argv[1], &srclen);
 
+	arena a = NULL;
+	struct type *types;
+	struct scope *scps;
+
 	struct lexemes toks = lexstring(src, srclen);
 	struct ast ast = parsetoks(toks);
-	struct type *types = analyzeprog(ast, toks);
+	analyzeprog(ast, toks, &a, &types, &scps);
 	// codegen(argv[1], types, ast, toks);
 
 #if DEBUG
-	free(types);
+	free(scps);
 	free(src);
+	free(types);
 	lexemes_free(toks);
 	ast_free(ast);
+	arena_free(&a);
 #endif
 	return EXIT_SUCCESS;
 }
