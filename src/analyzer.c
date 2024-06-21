@@ -1,9 +1,12 @@
 #include <assert.h>
+#include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <gmp.h>
 
 #include "alloc.h"
 #include "analyzer.h"
@@ -39,16 +42,25 @@ struct azctx {
 	   definition */
 	struct strview decl;
 
+	/* The index of the current scope in the scopes array */
+	idx_t_ si;
+
 	/* If we need to check for return statements.  Only true for the
 	   outer body-block of a function that returns a value. */
 	bool chkrets;
+};
 
-	/* The index of the current scope in the scopes array */
+struct cfctx {
+	arena *a;
+	struct strview decl;
 	idx_t_ si;
 };
 
 static void analyzeast(struct scope *, struct type *, struct ast,
                        struct lexemes, arena *)
+	__attribute__((nonnull));
+static void constfold(mpq_t *, struct scope *, struct type *, struct ast,
+                      struct lexemes, arena *)
 	__attribute__((nonnull));
 
 /* Perform a pass over the entire AST and return an array of symbol
@@ -87,13 +99,16 @@ const struct type *typelookup(const uchar *, size_t)
 
 void
 analyzeprog(struct ast ast, struct lexemes toks, arena *a, struct type **types,
-            struct scope **scps)
+            struct scope **scps, mpq_t **folds)
 {
 	*types = bufalloc(NULL, ast.len, sizeof(**types));
 	memset(*types, 0, ast.len * sizeof(**types));
 
 	*scps = gensymtabs(ast, toks, a);
 	analyzeast(*scps, *types, ast, toks, a);
+
+	*folds = bufalloc(NULL, ast.len, sizeof(**folds));
+	constfold(*folds, *scps, *types, ast, toks, a);
 }
 
 struct scope *
@@ -320,6 +335,143 @@ analyzeblk(struct azctx ctx, struct scope *scps, struct type *types,
 		err("analyzer: Function doesn’t return on all paths");
 
 	return i;
+}
+
+static idx_t_
+constfolddecl(struct cfctx ctx, mpq_t *folds, struct scope *scps,
+              struct type *types, struct ast ast, struct lexemes toks, idx_t_ i);
+static idx_t_
+constfoldexpr(struct cfctx ctx, mpq_t *folds, struct scope *scps,
+              struct type *types, struct ast ast, struct lexemes toks, idx_t_ i);
+
+idx_t_
+constfoldstmt(struct cfctx ctx, mpq_t *folds, struct scope *scps,
+              struct type *types, struct ast ast, struct lexemes toks, idx_t_ i)
+{
+	switch (ast.kinds[i]) {
+	case ASTDECL:
+	case ASTCDECL:
+	case ASTPCDECL:
+	case ASTPDECL:
+		return constfolddecl(ctx, folds, scps, types, ast, toks, i);
+	case ASTRET:
+		return constfoldexpr(ctx, folds, scps, types, ast, toks,
+		                     ast.kids[i].rhs);
+	default:
+		__builtin_unreachable();
+	}
+}
+
+idx_t_
+constfoldblk(struct cfctx ctx, mpq_t *folds, struct scope *scps,
+             struct type *types, struct ast ast, struct lexemes toks, idx_t_ i)
+{
+	struct pair p = ast.kids[i];
+	while (scps[ctx.si].i != p.lhs)
+		ctx.si++;
+	for (i = p.lhs; i <= p.rhs;
+	     i = constfoldstmt(ctx, folds, scps, types, ast, toks, i))
+		;
+
+	return i;
+}
+
+idx_t_
+constfoldexpr(struct cfctx ctx, mpq_t *folds, struct scope *scps,
+              struct type *types, struct ast ast, struct lexemes toks, idx_t_ i)
+{
+	/* Check if this expression has already been constant folded.  This
+	   works because when an mpq_t is initialized via mpq_init(), it is
+	   set to 0/1 meaning that the denominator pointer can’t be NULL. */
+	if ((*folds[i])._mp_den._mp_d != NULL)
+		return fwdnode(ast, i);
+
+	switch (ast.kinds[i]) {
+	case ASTNUMLIT: {
+		mpq_init(folds[i]);
+
+		/* TODO: Temporary allocator */
+		struct strview sv = toks.strs[ast.lexemes[i]];
+		char *buf = bufalloc(NULL, sv.len + 1, 1);
+		size_t len = 0;
+
+		for (size_t i = 0; i < sv.len; i++) {
+			if (isdigit(sv.p[i]))
+				buf[len++] = sv.p[i];
+		}
+		buf[len] = 0;
+
+		(void)mpq_set_str(folds[i], buf, 10);
+
+		free(buf);
+		return fwdnode(ast, i);
+	}
+	case ASTIDENT: {
+		struct strview sv = toks.strs[ast.lexemes[i]];
+
+		/* Variable shadowing */
+		if (strview_eq(sv, ctx.decl) && ctx.si > 0)
+			ctx.si--;
+
+		for (idx_t_ lvl = ctx.si;;) {
+			struct scope scp = scps[lvl];
+			idx_t_ *ip = symtab_insert(&scp.map, sv, NULL);
+
+			if (ip == NULL) {
+				assert(lvl != 0);
+				lvl = scp.up;
+			} else {
+				switch (ast.kinds[*ip]) {
+				case ASTDECL:
+				case ASTPDECL:
+					break;
+				case ASTCDECL:
+				case ASTPCDECL: {
+					*folds[i] = *folds[*ip];
+					if ((*folds[i])._mp_den._mp_d == NULL) {
+						ctx.si = lvl;
+						(void)constfolddecl(ctx, folds, scps, types, ast, toks,
+						                    *ip);
+						*folds[i] = *folds[*ip];
+						assert((*folds[i])._mp_den._mp_d != NULL);
+					}
+					break;
+				}
+				default:
+					__builtin_unreachable();
+				}
+
+				return fwdnode(ast, i);
+			}
+		}
+	}
+	case ASTFN:
+		return constfoldblk(ctx, folds, scps, types, ast, toks,
+		                    ast.kids[i].rhs);
+	default:
+		__builtin_unreachable();
+	}
+}
+
+idx_t_
+constfolddecl(struct cfctx ctx, mpq_t *folds, struct scope *scps,
+              struct type *types, struct ast ast, struct lexemes toks, idx_t_ i)
+{
+	if (ast.kids[i].rhs == AST_EMPTY)
+		return fwdnode(ast, i);
+	ctx.decl = toks.strs[ast.lexemes[i]];
+	return constfoldexpr(ctx, folds, scps, types, ast, toks, ast.kids[i].rhs);
+}
+
+void
+constfold(mpq_t *folds, struct scope *scps, struct type *types, struct ast ast,
+          struct lexemes toks, arena *a)
+{
+	struct cfctx ctx = {.a = a};
+	for (idx_t_ i = 0; likely(i < ast.len);) {
+		assert(ast.kinds[i] <= _AST_DECLS_END);
+		i = constfolddecl(ctx, folds, scps, types, ast, toks, i);
+	}
 }
 
 bool

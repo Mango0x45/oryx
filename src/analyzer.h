@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include <gmp.h>
+
 #include "alloc.h"
 #include "lexer.h"
 #include "parser.h"
@@ -55,7 +57,7 @@ struct type {
 };
 
 void analyzeprog(struct ast, struct lexemes, arena *, struct type **,
-                 struct scope **)
+                 struct scope **, mpq_t **)
 	__attribute__((nonnull));
 
 #endif /* !ORYX_ANALYZER_H */

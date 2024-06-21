@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <gmp.h>
+
 #include "alloc.h"
 #include "analyzer.h"
 #include "codegen.h"
@@ -28,15 +30,17 @@ main(int argc, char **argv)
 	char *src = readfile(argv[1], &srclen);
 
 	arena a = NULL;
+	mpq_t *folds;
 	struct type *types;
 	struct scope *scps;
 
 	struct lexemes toks = lexstring(src, srclen);
 	struct ast ast = parsetoks(toks);
-	analyzeprog(ast, toks, &a, &types, &scps);
+	analyzeprog(ast, toks, &a, &types, &scps, &folds);
 	codegen(argv[1], scps, types, ast, toks);
 
 #if DEBUG
+	free(folds);
 	free(scps);
 	free(src);
 	free(types);
