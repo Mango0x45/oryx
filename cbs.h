@@ -214,6 +214,7 @@ fmdcmp(const char *lhs, const char *rhs)
 	struct stat sbl, sbr;
 
 	stat(lhs, &sbl); errnol = errno;
+	errno = 0;
 	stat(rhs, &sbr); errnor = errno;
 
 	assert(errnol == 0 || errnol == ENOENT);
