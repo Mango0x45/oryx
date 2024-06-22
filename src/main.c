@@ -65,11 +65,11 @@ readfile(const char *filename, size_t *n)
 {
 	int fd = open(filename, O_RDONLY);
 	if (fd == -1)
-		err("open: %s", filename);
+		err("open: %s:", filename);
 
 	struct stat sb;
 	if (fstat(fd, &sb) == -1)
-		err("fstat: %s", filename);
+		err("fstat: %s:", filename);
 
 	char *p = bufalloc(NULL, sb.st_size + 4, 1);
 
@@ -77,7 +77,7 @@ readfile(const char *filename, size_t *n)
 	for (size_t off = 0; (nr = read(fd, p + off, sb.st_blksize)) > 0; off += nr)
 		;
 	if (nr == -1)
-		err("read: %s", filename);
+		err("read: %s:", filename);
 
 	p[sb.st_size + 0] =
 	p[sb.st_size + 1] =
