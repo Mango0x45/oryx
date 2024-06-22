@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <string.h>
 
 #include "common.h"
@@ -10,7 +11,7 @@ strview_hash(strview_t sv)
 	uint64_t h = 0x100;
 	for (size_t i = 0; likely(i < sv.len); i++) {
 		h ^= sv.p[i];
-		h *= 1111111111111111111u;
+		h *= UINT64_C(1111111111111111111);
 	}
 	return h;
 }
