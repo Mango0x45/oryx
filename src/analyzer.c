@@ -145,7 +145,7 @@ find_unordered_syms(scopes_t *scps, ast_t ast, aux_t aux, lexemes_t toks,
 		if (isstatic || isconst) {
 			strview_t sv = toks.strs[ast.lexemes[i]];
 			idx_t *p = symtab_insert(&scp->map, sv, a);
-			if (*p != 0) {
+			if (*p != AST_EMPTY) {
 				err("analyzer: Symbol ‘%.*s’ declared multiple times",
 				    SV_PRI_ARGS(sv));
 			}
@@ -186,7 +186,7 @@ analyzedecl(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	strview_t sv = toks.strs[ast.lexemes[i]];
 	if (ctx.si > 0 && ast.kinds[i] == ASTDECL) {
 		idx_t *ip = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
-		if (*ip == 0)
+		if (*ip == AST_EMPTY)
 			*ip = i;
 		else {
 			err("analyzer: Variable ‘%.*s’ declared multiple times",
@@ -529,5 +529,6 @@ symtab_insert(symtab **m, strview_t k, arena_t *a)
 		return NULL;
 	*m = arena_new(a, symtab, 1);
 	(*m)->key = k;
+	(*m)->val = AST_EMPTY;
 	return &(*m)->val;
 }
