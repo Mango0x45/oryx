@@ -12,4 +12,9 @@
 #	define unlikely(x)             (x)
 #endif
 
+/* Make printf() always available in debug builds */
+#ifdef DEBUG
+#	include <stdio.h>
+#endif
+
 #endif /* !ORYX_COMMON_H */
