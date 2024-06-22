@@ -241,10 +241,10 @@ analyzestmt(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		} else if (ctx.fnret.kind == TYPE_UNSET)
 			err("analyzer: Function has no return value");
 
-		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks,
-		                        ast.kids[i].rhs);
-		if (!typecompat(ctx.fnret, types[ast.kids[i].rhs]))
+		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, expr);
+		if (!typecompat(ctx.fnret, types[expr]))
 			err("analyzer: Return type mismatch");
+		types[i] = ctx.fnret;
 		return ni;
 	}
 	default:

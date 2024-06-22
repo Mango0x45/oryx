@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <stdio.h>
-
 #include <gmp.h>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
@@ -26,13 +24,11 @@ struct cgctx {
 	LLVMContextRef ctx;
 	LLVMModuleRef mod;
 	LLVMBuilderRef bob;
+	LLVMValueRef func;
 	strview_t namespace;
 };
 
 static LLVMTypeRef type2llvm(struct cgctx, type_t);
-// static void str2val(mpq_t, strview_t);
-// static struct val *cvmap_insert(cvmap **, strview_t, arena_t *)
-// 	__attribute__((nonnull(1)));
 
 static void codegenast(struct cgctx, mpq_t *, type_t *, ast_t,
                        lexemes_t)
@@ -71,31 +67,126 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 	LLVMContextDispose(ctx.ctx);
 }
 
+static idx_t
+codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+            lexemes_t toks, idx_t i);
+
+idx_t
+codegentypedexpr(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+                 lexemes_t toks, idx_t i, type_t type, LLVMValueRef *outv)
+{
+	if ((*folds[i])._mp_den._mp_d != NULL) {
+		if (type.kind == TYPE_NUM) {
+			mpz_ptr num, den;
+			num = mpq_numref(folds[i]);
+			den = mpq_denref(folds[i]);
+			if (mpz_cmp_ui(den, 1) != 0)
+				err("Invalid integer");
+
+			int cmp;
+			if ((sizeof(unsigned long) >= 8 && type.size <= 8)
+			    || type.size <= 4)
+			{
+				unsigned long x = 1UL << (type.size * 8 - type.issigned);
+				cmp = mpz_cmp_ui(num, x - 1);
+			} else {
+				mpz_t x;
+
+				/* Compute ‘(1 << bits) - 1’ to get the maximum value for the
+				   integer type */
+				mp_bitcnt_t bits = type.size * 8;
+				if (type.issigned)
+					bits--;
+				mpz_init_set_ui(x, 1);
+				mpz_mul_2exp(x, x, bits);
+				mpz_sub_ui(x, x, 1);
+
+				cmp = mpz_cmp(num, x);
+
+				mpz_clear(x);
+			}
+
+			if (cmp > 0)
+				err("Integer too large for datatype");
+
+			/* The max value of a u128 is length 39 */
+			char buf[40];
+			mpz_get_str(buf, 10, num);
+			*outv = LLVMConstIntOfString(type2llvm(ctx, type), buf, 10);
+		} else
+			err("not implemented 1");
+		return fwdnode(ast, i);
+	}
+	err("not implemented 2");
+}
+
+idx_t
+codegenstmt(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+            lexemes_t toks, idx_t i)
+{
+	switch (ast.kinds[i]) {
+	case ASTDECL:
+	case ASTCDECL:
+		return codegendecl(ctx, folds, types, ast, toks, i);
+	case ASTRET: {
+		idx_t expr = ast.kids[i].rhs;
+		if (expr == AST_EMPTY) {
+			LLVMBuildRetVoid(ctx.bob);
+			return fwdnode(ast, i);
+		}
+
+		LLVMValueRef v;
+		i = codegentypedexpr(ctx, folds, types, ast, toks, expr, types[i], &v);
+		(void)LLVMBuildRet(ctx.bob, v);
+		return i;
+	}
+	default:
+		__builtin_unreachable();
+	}
+}
+
+idx_t
+codegenblk(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+           lexemes_t toks, idx_t i)
+{
+	pair_t p = ast.kids[i];
+	for (i = p.lhs; i <= p.rhs;
+	     i = codegenstmt(ctx, folds, types, ast, toks, i))
+		;
+	return i;
+}
+
 idx_t
 codegenfunc(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
             lexemes_t toks, idx_t i, const char *name)
 {
-	LLVMTypeRef ret = type2llvm(ctx, types[ast.kids[i].rhs]);
+	LLVMTypeRef ret = types[i].ret == NULL
+	                    ? LLVMVoidTypeInContext(ctx.ctx)
+	                    : type2llvm(ctx, *types[i].ret);
+
 	LLVMTypeRef ft = LLVMFunctionType(ret, NULL, 0, false);
-	LLVMValueRef fn = LLVMAddFunction(ctx.mod, name, ft);
-	LLVMBasicBlockRef entry = LLVMAppendBasicBlock(fn, "entry");
+	ctx.func = LLVMAddFunction(ctx.mod, name, ft);
+	LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx.ctx, ctx.func,
+	                                                        "entry");
+	LLVMPositionBuilderAtEnd(ctx.bob, entry);
 
 	pair_t p = ast.kids[i];
-	// for (i = p.lhs; i <= p.rhs; i = codegenstmt(ctx, folds, types, ast, toks, i))
-	// 	;
-	return fwdnode(ast, p.rhs);
+	i = codegenblk(ctx, folds, types, ast, toks, p.rhs);
+	if (ast.kids[p.lhs].rhs == AST_EMPTY)
+		LLVMBuildRetVoid(ctx.bob);
+	return i;
 }
 
 idx_t
 codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
             lexemes_t toks, idx_t i)
 {
+	pair_t p = ast.kids[i];
 	/* Constants are purely a compiler concept; they aren’t generated
 	   into anything */
-	if (ast.kinds[i] == ASTCDECL)
+	if (ast.kinds[i] == ASTCDECL && ast.kinds[p.rhs] != ASTFN)
 		return fwdnode(ast, i);
 
-	pair_t p = ast.kids[i];
 	if (ast.kinds[p.rhs] == ASTFN) {
 		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
@@ -114,19 +205,9 @@ codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, svtocstr(name, sv));
 		free(name);
 
-#if DEBUG /* Assert that the fold is an integer */
-		mpz_t den;
-		mpq_canonicalize(folds[p.rhs]);
-		mpq_get_den(den, folds[p.rhs]);
-		assert(mpz_cmp_si(den, 1) == 0);
-		mpz_clear(den);
-#endif
-
-		/* The max value of a u128 is length 39 */
-		char buf[40];
-		mpq_get_str(buf, 10, folds[p.rhs]);
-
-		LLVMSetInitializer(globl, LLVMConstIntOfString(t, buf, 10));
+		LLVMValueRef v;
+		(void)codegentypedexpr(ctx, folds, types, ast, toks, ast.kids[i].rhs, types[i], &v);
+		LLVMSetInitializer(globl, v);
 		LLVMSetLinkage(globl, LLVMInternalLinkage);
 
 		return fwdnode(ast, i);
@@ -169,36 +250,3 @@ type2llvm(struct cgctx ctx, type_t t)
 		__builtin_unreachable();
 	}
 }
-
-// void
-// str2val(mpq_t rop, strview_t sv)
-// {
-// 	mpq_init(rop);
-// 	char *clean = bufalloc(NULL, sv.len + 1, 1);
-// 	size_t len = 0;
-//
-// 	for (size_t i = 0; i < sv.len; i++) {
-// 		if (isdigit(sv.p[i]))
-// 			clean[len++] = sv.p[i];
-// 	}
-// 	clean[len] = 0;
-//
-// 	mpq_set_str(rop, clean, 10);
-//
-// 	free(clean);
-// }
-//
-// struct val *
-// cvmap_insert(cvmap **m, strview_t k, arena_t *a)
-// {
-// 	for (uint64_t h = strview_hash(k); *m; h <<= 2) {
-// 		if (strview_eq(k, (*m)->key))
-// 			return &(*m)->val;
-// 		m = &(*m)->child[h >> 62];
-// 	}
-// 	if (a == NULL)
-// 		return NULL;
-// 	*m = arena_new(a, cvmap, 1);
-// 	(*m)->key = k;
-// 	return &(*m)->val;
-// }
