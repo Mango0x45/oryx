@@ -215,9 +215,11 @@ analyzedecl(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	} else
 		ni = fwdnode(ast, i);
 
-	if (ltype.kind == TYPE_UNSET)
+	if (ltype.kind == TYPE_UNSET) {
 		ltype = rtype;
-	else if (!typecompat(ltype, rtype))
+		if (ast.kinds[i] == ASTDECL && rtype.size == 0)
+			ltype.size = 8;
+	} else if (!typecompat(ltype, rtype))
 		err("analyzer: Type mismatch");
 
 	types[i] = ltype;
