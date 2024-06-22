@@ -21,22 +21,28 @@
 #endif
 #define SIZE_WDTH (sizeof(size_t) * CHAR_BIT)
 
-typedef idx_t_ parsefn(struct ast *, struct aux *, struct lexemes)
+typedef idx_t parsefn(ast_t *, aux_t *, lexemes_t)
 	__attribute__((nonnull));
 static parsefn parseblk, parseexpr, parsefunc, parseproto, parsestmt, parsetype;
-static idx_t_ parsedecl(struct ast *, struct aux *, struct lexemes, bool)
+static idx_t parsedecl(ast_t *, aux_t *, lexemes_t, bool)
 	__attribute__((nonnull));
 
-static struct ast mkast(void);
-static idx_t_ astalloc(struct ast *)
-	__attribute__((nonnull));
-static void astresz(struct ast *)
+static ast_t mkast(void);
+
+/* Return a new index in AST where a node can be stored.  This function
+   automatically resizes AST if it runs out of capacity. */
+static idx_t astalloc(ast_t *ast)
 	__attribute__((nonnull));
 
+/* Resize AST to the next power-of-2 capacity */
+static void astresz(ast_t *ast)
+	__attribute__((nonnull));
+
+/* TODO: Make thread-local? */
 static size_t toksidx;
 
-idx_t_
-fwdnode(struct ast ast, idx_t_ i)
+idx_t
+fwdnode(ast_t ast, idx_t i)
 {
 	while (likely(i < ast.len)) {
 		switch (ast.kinds[i]) {
@@ -71,10 +77,10 @@ fwdnode(struct ast ast, idx_t_ i)
 	return i;
 }
 
-struct ast
-parsetoks(struct lexemes toks, struct aux *aux)
+ast_t
+parsetoks(lexemes_t toks, aux_t *aux)
 {
-	struct ast ast = mkast();
+	ast_t ast = mkast();
 	aux->buf = bufalloc(NULL, aux->cap = AUX_DFLT_CAP, sizeof(*aux->buf));
 
 	for (;;) {
@@ -86,10 +92,10 @@ parsetoks(struct lexemes toks, struct aux *aux)
 	return ast;
 }
 
-idx_t_
-parseblk(struct ast *ast, struct aux *aux, struct lexemes toks)
+idx_t
+parseblk(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
-	idx_t_ i = astalloc(ast);
+	idx_t i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTBLK;
 	ast->kids[i].lhs = AST_EMPTY;
@@ -99,12 +105,12 @@ parseblk(struct ast *ast, struct aux *aux, struct lexemes toks)
 		err("parser: Expected left brace");
 
 	if (toks.kinds[toksidx] != LEXRBRACE) {
-		idx_t_ stmt = parsestmt(ast, aux, toks);
+		idx_t stmt = parsestmt(ast, aux, toks);
 		ast->kids[i].lhs = ast->kids[i].rhs = stmt;
 	}
 
 	while (toks.kinds[toksidx] != LEXRBRACE) {
-		idx_t_ stmt = parsestmt(ast, aux, toks);
+		idx_t stmt = parsestmt(ast, aux, toks);
 		ast->kids[i].rhs = stmt;
 	}
 
@@ -112,10 +118,10 @@ parseblk(struct ast *ast, struct aux *aux, struct lexemes toks)
 	return i;
 }
 
-idx_t_
-parsedecl(struct ast *ast, struct aux *aux, struct lexemes toks, bool toplvl)
+idx_t
+parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 {
-	idx_t_ i = astalloc(ast), j = aux->len++;
+	idx_t i = astalloc(ast), j = aux->len++;
 
 	if (aux->len > aux->cap) {
 		aux->cap *= 2;
@@ -164,7 +170,7 @@ parsedecl(struct ast *ast, struct aux *aux, struct lexemes toks, bool toplvl)
 	if (func && ast->kinds[i] == ASTDECL)
 		err("Cannot assign function to mutable variable");
 
-	idx_t_ rhs = (func ? parsefunc : parseexpr)(ast, aux, toks);
+	idx_t rhs = (func ? parsefunc : parseexpr)(ast, aux, toks);
 	ast->kids[i].rhs = rhs;
 	if (!func && toks.kinds[toksidx++] != LEXSEMI)
 		err("parser: Expected semicolon");
@@ -172,28 +178,28 @@ parsedecl(struct ast *ast, struct aux *aux, struct lexemes toks, bool toplvl)
 	return i;
 }
 
-idx_t_
-parsefunc(struct ast *ast, struct aux *aux, struct lexemes toks)
+idx_t
+parsefunc(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
-	idx_t_ i = astalloc(ast);
+	idx_t i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 
 	assert(toks.kinds[toksidx] == LEXLPAR);
 
 	ast->kinds[i] = ASTFN;
-	idx_t_ lhs = parseproto(ast, aux, toks);
-	idx_t_ rhs = parseblk(ast, aux, toks);
+	idx_t lhs = parseproto(ast, aux, toks);
+	idx_t rhs = parseblk(ast, aux, toks);
 	ast->kids[i].lhs = lhs;
 	ast->kids[i].rhs = rhs;
 
 	return i;
 }
 
-idx_t_
-parseexpr(struct ast *ast, struct aux *aux, struct lexemes toks)
+idx_t
+parseexpr(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
 	(void)aux;
-	idx_t_ i = astalloc(ast);
+	idx_t i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 
 	switch (toks.kinds[toksidx]) {
@@ -212,10 +218,10 @@ parseexpr(struct ast *ast, struct aux *aux, struct lexemes toks)
 	return i;
 }
 
-idx_t_
-parseproto(struct ast *ast, struct aux *aux, struct lexemes toks)
+idx_t
+parseproto(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
-	idx_t_ i = astalloc(ast);
+	idx_t i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTFNPROTO;
 	ast->kids[i].lhs = AST_EMPTY;
@@ -225,27 +231,27 @@ parseproto(struct ast *ast, struct aux *aux, struct lexemes toks)
 	if (toks.kinds[toksidx++] != LEXRPAR)
 		err("parser: Expected right parenthesis");
 
-	idx_t_ rhs = toks.kinds[toksidx] == LEXIDENT ? parsetype(ast, aux, toks)
+	idx_t rhs = toks.kinds[toksidx] == LEXIDENT ? parsetype(ast, aux, toks)
 	                                             : AST_EMPTY;
 	ast->kids[i].rhs = rhs;
 	return i;
 }
 
-idx_t_
-parsestmt(struct ast *ast, struct aux *aux, struct lexemes toks)
+idx_t
+parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
-	idx_t_ i;
+	idx_t i;
 
 	if (toks.kinds[toksidx] != LEXIDENT)
 		err("parser: Expected identifier");
 
-	struct strview sv = toks.strs[toksidx];
+	strview_t sv = toks.strs[toksidx];
 	if (strview_eq(SV("return"), sv)) {
 		i = astalloc(ast);
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;
 
-		idx_t_ rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, aux, toks)
+		idx_t rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, aux, toks)
 		                                            : AST_EMPTY;
 		ast->kids[i].rhs = rhs;
 		if (toks.kinds[toksidx++] != LEXSEMI)
@@ -259,11 +265,12 @@ parsestmt(struct ast *ast, struct aux *aux, struct lexemes toks)
 	return i;
 }
 
-idx_t_
-parsetype(struct ast *ast, struct aux *aux, struct lexemes toks)
+idx_t
+parsetype(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
 	(void)aux;
-	idx_t_ i = astalloc(ast);
+
+	idx_t i = astalloc(ast);
 	ast->kinds[i] = ASTTYPE;
 	ast->lexemes[i] = toksidx;
 
@@ -273,15 +280,15 @@ parsetype(struct ast *ast, struct aux *aux, struct lexemes toks)
 	return i;
 }
 
-struct ast
+ast_t
 mkast(void)
 {
-	struct ast soa;
+	ast_t soa;
 
-	static_assert(AST_DFLT_CAP * sizeof(*soa.kinds) % alignof(idx_t_) == 0,
+	static_assert(AST_DFLT_CAP * sizeof(*soa.kinds) % alignof(idx_t) == 0,
 	              "Additional padding is required to properly align LEXEMES");
 	static_assert(AST_DFLT_CAP * (sizeof(*soa.kinds) + sizeof(*soa.lexemes))
-	                      % alignof(struct pair)
+	                      % alignof(pair_t)
 	                  == 0,
 	              "Additional padding is required to properly align KIDS");
 
@@ -296,7 +303,7 @@ mkast(void)
 }
 
 void
-astresz(struct ast *soa)
+astresz(ast_t *soa)
 {
 	size_t ncap, pad1, pad2, newsz;
 	ptrdiff_t lexemes_off, kids_off;
@@ -304,24 +311,23 @@ astresz(struct ast *soa)
 	lexemes_off = (char *)soa->lexemes - (char *)soa->kinds;
 	kids_off = (char *)soa->kids - (char *)soa->kinds;
 
-	/* The capacity is always going to be a power of 2, so checking for overflow
-	   becomes pretty trivial */
-	if ((soa->cap >> (SIZE_WDTH - 1)) != 0) {
-		errno = EOVERFLOW;
+	/* The capacity is always going to be a power of 2, so checking for
+	   overflow becomes pretty trivial */
+	if (unlikely((soa->cap >> (SIZE_WDTH - 1)) != 0)) {
+		errno = ENOMEM;
 		err("%s:", __func__);
 	}
 	ncap = soa->cap << 1;
 
 	/* Ensure that soa->lexemes is properly aligned */
-	pad1 = alignof(idx_t_) - ncap * sizeof(ast_kind_t_) % alignof(idx_t_);
-	if (pad1 == alignof(idx_t_))
+	pad1 = alignof(idx_t) - ncap % alignof(idx_t);
+	if (pad1 == alignof(idx_t))
 		pad1 = 0;
 
 	/* Ensure that soa->kids is properly aligned */
-	pad2 = alignof(struct pair)
-	     - (ncap * (sizeof(ast_kind_t_) + sizeof(idx_t_)) + pad1)
-	           % alignof(struct pair);
-	if (pad2 == alignof(struct pair))
+	pad2 = alignof(pair_t)
+	     - (ncap * (1 + sizeof(idx_t)) + pad1) % alignof(pair_t);
+	if (pad2 == alignof(pair_t))
 		pad2 = 0;
 
 	newsz = ncap * AST_SOA_BLKSZ + pad1 + pad2;
@@ -339,10 +345,10 @@ astresz(struct ast *soa)
 	soa->cap = ncap;
 }
 
-idx_t_
-astalloc(struct ast *soa)
+idx_t
+astalloc(ast_t *soa)
 {
-	if (soa->len == soa->cap)
+	if (unlikely(soa->len == soa->cap))
 		astresz(soa);
 	return soa->len++;
 }

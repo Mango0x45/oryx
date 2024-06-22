@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <x86intrin.h>
 
+#include "types.h"
 #include "unicode.h"
 
 #pragma GCC diagnostic ignored "-Woverflow"
@@ -58,7 +59,7 @@ static const int8_t _ef_fe_tbl[] = {
 
 /* Return 0 on success, -1 on error */
 bool
-utf8_validate_simd(const unsigned char *s, size_t len)
+utf8_validate_simd(const uchar *s, size_t len)
 {
 	if (len >= 32) {
 		__m128i prev_input = _mm_set1_epi8(0);

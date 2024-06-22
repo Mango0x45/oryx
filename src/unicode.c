@@ -1,5 +1,7 @@
-#include "unicode.h"
+#include "common.h"
+#include "types.h"
 #include "unicode-data.h"
+#include "unicode.h"
 
 #define RUNE_IS_GEN(fn, stg1, stg2, blksz)                                     \
 	bool fn(rune ch)                                                           \
@@ -49,9 +51,9 @@ static const int shiftc[] = {0, 18, 12, 6, 0};
 static const int shifte[] = {0, 6, 4, 2, 0};
 
 rune
-utf8_decode(const unsigned char **buf)
+utf8_decode(const uchar **buf)
 {
-	const unsigned char *s = *buf;
+	const uchar *s = *buf;
 	int len = lengths[s[0] >> 3];
 	*buf = s + len + !len;
 
@@ -63,13 +65,13 @@ utf8_decode(const unsigned char **buf)
 }
 
 size_t
-utf8_validate_off(const unsigned char *s, size_t len)
+utf8_validate_off(const uchar *s, size_t len)
 {
-	const unsigned char *start = s, *end = start + len;
-	while (s < end) {
+	const uchar *start = s, *end = start + len;
+	while (likely(s < end)) {
 		int len = lengths[s[0] >> 3];
 
-		const unsigned char *next = s + len + !len;
+		const uchar *next = s + len + !len;
 
 		rune c = (rune)(s[0] & masks[len]) << 18;
 		c |= (rune)(s[1] & 0x3f) << 12;
@@ -85,7 +87,7 @@ utf8_validate_off(const unsigned char *s, size_t len)
 		e |= (s[3]) >> 6;
 		e ^= 0x2A;
 		e >>= shifte[len];
-		if (e != 0)
+		if (unlikely(e != 0))
 			return s - start + 1;
 		s = next;
 	}

@@ -26,14 +26,20 @@
 #define IS_POW_2(n) ((n) != 0 && ((n) & ((n)-1)) == 0)
 
 struct _arena {
+	/* DATA points to the start of the block’s memory while FREE points
+	   to the beginning of the unused data in the block */
+	void *data, *free;
 	size_t len, cap;
-	void *data, *last;
 	struct _arena *next;
 };
 
-static struct _arena *mkblk(size_t)
+/* Return a new arena block of size SZ */
+static struct _arena *mkblk(size_t sz)
 	__attribute__((returns_nonnull));
-static inline size_t pad(size_t, size_t)
+
+/* Return the padding required to properly align an allocation with
+   alignment ALIGN at offset OFF */
+static inline size_t pad(size_t off, size_t align)
 	__attribute__((const, always_inline));
 
 void *
@@ -42,8 +48,8 @@ arena_alloc(struct _arena **a, size_t nmemb, size_t size, size_t align)
 	assert(IS_POW_2(align));
 	assert(nmemb * size != 0);
 
-	if (size > SIZE_MAX / nmemb) {
-		errno = EOVERFLOW;
+	if (unlikely(size > SIZE_MAX / nmemb)) {
+		errno = ENOMEM;
 		err("%s:", __func__);
 	}
 
@@ -57,7 +63,7 @@ arena_alloc(struct _arena **a, size_t nmemb, size_t size, size_t align)
 		if (nlen <= p->cap) {
 			void *ret = (char *)p->data + off;
 			p->len = nlen;
-			p->last = ret;
+			p->free = ret;
 			return ret;
 		}
 	}
@@ -71,27 +77,27 @@ arena_alloc(struct _arena **a, size_t nmemb, size_t size, size_t align)
 }
 
 void *
-_arena_grow(arena *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
+_arena_grow(arena_t *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
             size_t size, size_t align)
 {
 	assert(IS_POW_2(align));
 	assert(new_nmemb * size != 0);
 
-	if (size > SIZE_MAX / new_nmemb) {
-		errno = EOVERFLOW;
+	if (unlikely(size > SIZE_MAX / new_nmemb)) {
+		errno = ENOMEM;
 		err("%s:", __func__);
 	}
 
 	size *= new_nmemb;
 
 	for (struct _arena *p = *a; p != NULL; p = p->next) {
-		if (ptr < p->data || ptr > p->last)
+		if (ptr < p->data || ptr > p->free)
 			continue;
 
 		/* If we need to grow the given allocation, but it was the last
 		   allocation made in a region, then we first see if we can just eat
 		   more trailing free space in the region to avoid a memcpy(). */
-		if (ptr == p->last) {
+		if (ptr == p->free) {
 			size_t rest = p->cap - p->len;
 			size_t need = (new_nmemb - old_nmemb) * size;
 			if (need <= rest) {
@@ -134,7 +140,7 @@ mkblk(size_t cap)
 	a->data = mmap(NULL, cap, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 	if (a->data == MAP_FAILED)
 		err("mmap:");
-	a->last = a->data;
+	a->free = a->data;
 	return a;
 }
 

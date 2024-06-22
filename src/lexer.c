@@ -22,10 +22,17 @@
 #endif
 #define SIZE_WDTH (sizeof(size_t) * CHAR_BIT)
 
-static bool skip_comment(const uchar **, const uchar *);
+static lexemes_t mklexemes(void);
 
-static struct lexemes mklexemes(void);
-static void lexemesresz(struct lexemes *);
+/* Resize TOKS to the next power-of-2 capacity */
+static void lexemesresz(lexemes_t *toks)
+	__attribute__((nonnull));
+
+/* Advance PTR (which points to the start of a comment) to the end of the
+   comment, or END.  Returns true if the comment was well-formed and
+   false if the comment was unterminated.  Handles nested comments. */
+static bool skip_comment(const uchar **ptr, const uchar *end)
+	__attribute__((nonnull));
 
 static const bool is_numeric_lookup[UCHAR_MAX + 1] = {
 	['0'] = true, ['1'] = true, ['2'] = true,  ['3'] = true,
@@ -33,7 +40,7 @@ static const bool is_numeric_lookup[UCHAR_MAX + 1] = {
 	['8'] = true, ['9'] = true, ['\''] = true,
 };
 
-struct lexemes
+lexemes_t
 lexstring(const uchar *code, size_t codesz)
 {
 #if ORYX_SIMD
@@ -48,7 +55,7 @@ lexstring(const uchar *code, size_t codesz)
 	}
 #endif
 
-	struct lexemes data = mklexemes();
+	lexemes_t data = mklexemes();
 
 	const uchar *start = code, *end = start + codesz;
 	while (likely(code < end)) {
@@ -74,8 +81,7 @@ lexstring(const uchar *code, size_t codesz)
 			data.kinds[data.len++] = ch;
 			break;
 
-		case '<':
-		case '>':
+		case '<': case '>':
 			data.kinds[data.len++] = ch;
 
 			/* See the comment in lexer.h for where 193 comes from */
@@ -159,13 +165,12 @@ out:
 	return true;
 }
 
-struct lexemes
+lexemes_t
 mklexemes(void)
 {
-	struct lexemes soa;
+	lexemes_t soa;
 
-	static_assert(offsetof(struct lexemes, kinds)
-	                  < offsetof(struct lexemes, strs),
+	static_assert(offsetof(lexemes_t, kinds) < offsetof(lexemes_t, strs),
 	              "KINDS is not the first field before STRS");
 	static_assert(LEXEMES_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.strs)
 	                  == 0,
@@ -180,19 +185,18 @@ mklexemes(void)
 }
 
 void
-lexemesresz(struct lexemes *soa)
+lexemesresz(lexemes_t *soa)
 {
-	static_assert(offsetof(struct lexemes, kinds)
-	                  < offsetof(struct lexemes, strs),
+	static_assert(offsetof(lexemes_t, kinds) < offsetof(lexemes_t, strs),
 	              "KINDS is not the first field before STRS");
 
 	size_t ncap, pad, newsz;
 	ptrdiff_t off = (char *)soa->strs - (char *)soa->kinds;
 
-	/* The capacity is always going to be a power of 2, so checking for overflow
-	   becomes pretty trivial */
-	if ((soa->cap >> (SIZE_WDTH - 1)) != 0) {
-		errno = EOVERFLOW;
+	/* The capacity is always going to be a power of 2, so checking for
+	   overflow becomes pretty trivial */
+	if (unlikely((soa->cap >> (SIZE_WDTH - 1)) != 0)) {
+		errno = ENOMEM;
 		err("%s:", __func__);
 	}
 	ncap = soa->cap << 1;

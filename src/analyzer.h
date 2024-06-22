@@ -28,20 +28,19 @@ enum {
 	_TYPE_LAST_ENT,
 };
 
-typedef uint8_t type_kind_t_;
-static_assert(_TYPE_LAST_ENT - 1 <= (type_kind_t_)-1,
-              "Too many AST tokens to fix in TYPE_KIND_T_");
+static_assert(_TYPE_LAST_ENT - 1 <= UINT8_MAX,
+              "Too many AST tokens to fix in uint8_t");
 
 typedef struct symtab symtab;
 
-struct scope {
-	idx_t_ up, i;
+typedef struct {
+	idx_t up, i;
 	symtab *map;
-};
+} scope_t;
 
 /* A variable type */
-struct type {
-	type_kind_t_ kind;
+typedef struct type {
+	uint8_t kind;
 
 	union {
 		struct {
@@ -51,13 +50,13 @@ struct type {
 		};
 		struct  {
 			const struct type *params, *ret;
-			idx_t_ paramcnt;
+			idx_t paramcnt;
 		};
 	};
-};
+} type_t;
 
-void analyzeprog(struct ast, struct aux, struct lexemes, arena *,
-                 struct type **, struct scope **, mpq_t **)
+void analyzeprog(ast_t, aux_t, lexemes_t, arena_t *, type_t **, scope_t **,
+                 mpq_t **)
 	__attribute__((nonnull));
 
 #endif /* !ORYX_ANALYZER_H */

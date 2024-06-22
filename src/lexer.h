@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "common.h"
+#include "strview.h"
 #include "types.h"
 
 enum {
@@ -41,21 +42,20 @@ enum {
 	_LEX_LAST_ENT,
 };
 
-typedef uint8_t lexeme_kind_t_;
-static_assert(_LEX_LAST_ENT - 1 <= (lexeme_kind_t_)-1,
-              "Too many lexer tokens to fix in LEXEME_KIND_T_");
+static_assert(_LEX_LAST_ENT - 1 <= UINT8_MAX,
+              "Too many lexer tokens to fix in uint8_t");
 
-#define LEXEMES_BLKSZ (sizeof(lexeme_kind_t_) + sizeof(struct strview))
+#define LEXEMES_BLKSZ (1 + sizeof(strview_t))
 
-struct lexemes {
-	lexeme_kind_t_ *kinds;
-	struct strview *strs;
+typedef struct {
+	uint8_t *kinds;
+	strview_t *strs;
 	size_t len, cap;
-};
+} lexemes_t;
 
 #define lexemes_free(x) free((x).kinds)
 
-struct lexemes lexstring(const uchar *, size_t)
+lexemes_t lexstring(const uchar *, size_t)
 	__attribute__((nonnull));
 
 #endif /* !ORYX_LEXER_H */

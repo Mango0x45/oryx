@@ -15,7 +15,9 @@
 #include "lexer.h"
 #include "parser.h"
 
-static char *readfile(const char *, size_t *)
+/* Read the contents of FILE into a dynamically allocated buffer and
+   return it, storing the buffer size in BUFSZ. */
+static char *readfile(const char *file, size_t *bufsz)
 	__attribute__((returns_nonnull, nonnull));
 
 int
@@ -29,14 +31,14 @@ main(int argc, char **argv)
 	size_t srclen;
 	char *src = readfile(argv[1], &srclen);
 
-	arena a = NULL;
+	aux_t aux;
 	mpq_t *folds;
-	struct aux aux;
-	struct type *types;
-	struct scope *scps;
+	type_t *types;
+	scope_t *scps;
+	arena_t a = NULL;
 
-	struct lexemes toks = lexstring(src, srclen);
-	struct ast ast = parsetoks(toks, &aux);
+	lexemes_t toks = lexstring(src, srclen);
+	ast_t ast = parsetoks(toks, &aux);
 	analyzeprog(ast, aux, toks, &a, &types, &scps, &folds);
 	codegen(argv[1], folds, scps, types, ast, toks);
 
@@ -76,8 +78,11 @@ readfile(const char *filename, size_t *n)
 		;
 	if (nr == -1)
 		err("read: %s", filename);
-	for (int i = 0; i < 4; i++)
-		p[sb.st_size + i] = 0;
+
+	p[sb.st_size + 0] =
+	p[sb.st_size + 1] =
+	p[sb.st_size + 2] =
+	p[sb.st_size + 3] = 0;
 
 	*n = sb.st_size;
 	close(fd);

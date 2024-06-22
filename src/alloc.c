@@ -4,17 +4,18 @@
 #include <stdlib.h>
 
 #include "alloc.h"
+#include "common.h"
 #include "errors.h"
 
 void *
 bufalloc(void *ptr, size_t nmemb, size_t size)
 {
 	assert(nmemb * size != 0);
-	if (size > SIZE_MAX / nmemb) {
-		errno = EOVERFLOW;
+	if (unlikely(size > SIZE_MAX / nmemb)) {
+		errno = ENOMEM;
 		err("%s:", __func__);
 	}
-	if ((ptr = realloc(ptr, nmemb * size)) == NULL)
+	if (unlikely((ptr = realloc(ptr, nmemb * size)) == NULL))
 		err("%s:", __func__);
 	return ptr;
 }

@@ -6,7 +6,7 @@
 
 #include "common.h"
 
-typedef struct _arena *arena;
+typedef struct _arena *arena_t;
 
 /* Allocate a buffer of NMEMB elements of size SIZE.  If PTR is non-null then
    reallocate the buffer it points to.  Aborts on out-of-memory or overflow. */
@@ -15,16 +15,16 @@ void *bufalloc(void *ptr, size_t nmemb, size_t size)
 
 /* Allocate a buffer of NMEMB elements of size SIZE with alignment ALIGN using
    the arena-allocator A. */
-void *arena_alloc(arena *a, size_t nmemb, size_t size, size_t align)
+void *arena_alloc(arena_t *a, size_t nmemb, size_t size, size_t align)
 	__attribute__((returns_nonnull, nonnull, warn_unused_result, malloc,
                    alloc_size(2, 3), alloc_align(4)));
 
-void *_arena_grow(arena *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
+void *_arena_grow(arena_t *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
                   size_t size, size_t align)
 	__attribute__((returns_nonnull, nonnull, warn_unused_result));
 
 /* Deallocate all memory associated with the arena A. */
-void arena_free(arena *a)
+void arena_free(arena_t *a)
 	__attribute__((nonnull));
 
 /* Allocate a buffer of N elements of type T using the arena-allocator A. */

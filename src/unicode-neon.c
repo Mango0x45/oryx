@@ -27,6 +27,7 @@
 #include <arm_neon.h>
 #include <stdint.h>
 
+#include "types.h"
 #include "unicode.h"
 
 #pragma GCC diagnostic ignored "-Woverflow"
@@ -54,7 +55,7 @@ static const uint8_t _range_adjust_tbl[] = {
 };
 
 bool
-utf8_validate_simd(const unsigned char *s, size_t len)
+utf8_validate_simd(const uchar *s, size_t len)
 {
 	if (len >= 32) {
 		uint8x16_t prev_input = vdupq_n_u8(0);

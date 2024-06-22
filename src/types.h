@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-typedef uint32_t      idx_t_;
+typedef uint32_t      idx_t;
 typedef uint32_t      rune;
 typedef unsigned char uchar;
 

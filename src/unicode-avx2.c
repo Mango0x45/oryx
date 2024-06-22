@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <x86intrin.h>
 
+#include "types.h"
 #include "unicode.h"
 
 #pragma GCC diagnostic ignored "-Woverflow"
@@ -81,7 +82,7 @@ push_last_3bytes_of_a_to_b(__m256i a, __m256i b)
 }
 
 bool
-utf8_validate_simd(const unsigned char *s, size_t len)
+utf8_validate_simd(const uchar *s, size_t len)
 {
 	if (len >= 32) {
 		__m256i prev_input = _mm256_set1_epi8(0);

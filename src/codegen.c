@@ -22,25 +22,25 @@
 /* A context structure we can pass to all the codegen functions just so they
    have easy access to everything */
 struct cgctx {
-	arena a;
+	arena_t a;
 	LLVMContextRef ctx;
 	LLVMModuleRef mod;
 	LLVMBuilderRef bob;
-	struct strview namespace;
+	strview_t namespace;
 };
 
-static LLVMTypeRef type2llvm(struct cgctx, struct type);
-// static void str2val(mpq_t, struct strview);
-// static struct val *cvmap_insert(cvmap **, struct strview, arena *)
+static LLVMTypeRef type2llvm(struct cgctx, type_t);
+// static void str2val(mpq_t, strview_t);
+// static struct val *cvmap_insert(cvmap **, strview_t, arena_t *)
 // 	__attribute__((nonnull(1)));
 
-static void codegenast(struct cgctx, mpq_t *, struct type *, struct ast,
-                       struct lexemes)
+static void codegenast(struct cgctx, mpq_t *, type_t *, ast_t,
+                       lexemes_t)
 	__attribute__((nonnull));
 
 void
-codegen(const char *file, mpq_t *folds, struct scope *scps, struct type *types,
-        struct ast ast, struct lexemes toks)
+codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
+        ast_t ast, lexemes_t toks)
 {
 	(void)scps;
 	char *triple = LLVMGetDefaultTargetTriple();
@@ -71,33 +71,33 @@ codegen(const char *file, mpq_t *folds, struct scope *scps, struct type *types,
 	LLVMContextDispose(ctx.ctx);
 }
 
-idx_t_
-codegenfunc(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
-            struct lexemes toks, idx_t_ i, const char *name)
+idx_t
+codegenfunc(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+            lexemes_t toks, idx_t i, const char *name)
 {
 	LLVMTypeRef ret = type2llvm(ctx, types[ast.kids[i].rhs]);
 	LLVMTypeRef ft = LLVMFunctionType(ret, NULL, 0, false);
 	LLVMValueRef fn = LLVMAddFunction(ctx.mod, name, ft);
 	LLVMBasicBlockRef entry = LLVMAppendBasicBlock(fn, "entry");
 
-	struct pair p = ast.kids[i];
+	pair_t p = ast.kids[i];
 	// for (i = p.lhs; i <= p.rhs; i = codegenstmt(ctx, folds, types, ast, toks, i))
 	// 	;
 	return fwdnode(ast, p.rhs);
 }
 
-idx_t_
-codegendecl(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
-            struct lexemes toks, idx_t_ i)
+idx_t
+codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+            lexemes_t toks, idx_t i)
 {
 	/* Constants are purely a compiler concept; they aren’t generated
 	   into anything */
 	if (ast.kinds[i] == ASTCDECL)
 		return fwdnode(ast, i);
 
-	struct pair p = ast.kids[i];
+	pair_t p = ast.kids[i];
 	if (ast.kinds[p.rhs] == ASTFN) {
-		struct strview sv = toks.strs[ast.lexemes[i]];
+		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		/* TODO: Temporary allocator */
 		char *name = bufalloc(NULL, sv.len + 1, 1);
@@ -106,7 +106,7 @@ codegendecl(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
 		free(name);
 		return i;
 	} else if (!types[i].isfloat) {
-		struct strview sv = toks.strs[ast.lexemes[i]];
+		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		/* TODO: Temporary allocator */
 		char *name = bufalloc(NULL, sv.len + 1, 1);
@@ -135,16 +135,16 @@ codegendecl(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
 }
 
 void
-codegenast(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
-           struct lexemes toks)
+codegenast(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+           lexemes_t toks)
 {
-	for (idx_t_ i = 0; i < ast.len;
+	for (idx_t i = 0; i < ast.len;
 	     i = codegendecl(ctx, folds, types, ast, toks, i))
 		;
 }
 
 LLVMTypeRef
-type2llvm(struct cgctx ctx, struct type t)
+type2llvm(struct cgctx ctx, type_t t)
 {
 	switch (t.kind) {
 	case TYPE_FN:
@@ -171,7 +171,7 @@ type2llvm(struct cgctx ctx, struct type t)
 }
 
 // void
-// str2val(mpq_t rop, struct strview sv)
+// str2val(mpq_t rop, strview_t sv)
 // {
 // 	mpq_init(rop);
 // 	char *clean = bufalloc(NULL, sv.len + 1, 1);
@@ -189,7 +189,7 @@ type2llvm(struct cgctx ctx, struct type t)
 // }
 //
 // struct val *
-// cvmap_insert(cvmap **m, struct strview k, arena *a)
+// cvmap_insert(cvmap **m, strview_t k, arena_t *a)
 // {
 // 	for (uint64_t h = strview_hash(k); *m; h <<= 2) {
 // 		if (strview_eq(k, (*m)->key))
