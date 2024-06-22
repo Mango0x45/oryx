@@ -17,4 +17,6 @@
 #	include <stdio.h>
 #endif
 
+#define MPQ_IS_INIT(x) (mpq_denref(x)->_mp_d != NULL)
+
 #endif /* !ORYX_COMMON_H */

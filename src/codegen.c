@@ -30,13 +30,13 @@ struct cgctx {
 
 static LLVMTypeRef type2llvm(struct cgctx, type_t);
 
-static void codegenast(struct cgctx, mpq_t *, type_t *, ast_t,
+static void codegenast(struct cgctx, mpq_t *, type_t *, ast_t, aux_t ,
                        lexemes_t)
 	__attribute__((nonnull));
 
 void
 codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
-        ast_t ast, lexemes_t toks)
+        ast_t ast, aux_t aux, lexemes_t toks)
 {
 	(void)scps;
 	char *triple = LLVMGetDefaultTargetTriple();
@@ -51,7 +51,7 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 	LLVMSetTarget(ctx.mod, triple);
 	LLVMDisposeMessage(triple);
 
-	codegenast(ctx, folds, types, ast, toks);
+	codegenast(ctx, folds, types, ast, aux, toks);
 
 	arena_free(&ctx.a);
 
@@ -69,65 +69,61 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 
 static idx_t
 codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-            lexemes_t toks, idx_t i);
+            aux_t aux, lexemes_t toks, idx_t i);
 
 idx_t
 codegentypedexpr(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-                 lexemes_t toks, idx_t i, type_t type, LLVMValueRef *outv)
+                 aux_t aux, lexemes_t toks, idx_t i, type_t type,
+                 LLVMValueRef *outv)
 {
-	if ((*folds[i])._mp_den._mp_d != NULL) {
-		if (type.kind == TYPE_NUM) {
-			mpz_ptr num, den;
-			num = mpq_numref(folds[i]);
-			den = mpq_denref(folds[i]);
-			if (mpz_cmp_ui(den, 1) != 0)
-				err("Invalid integer");
+	/* If true, implies numeric constant */
+	if (MPQ_IS_INIT(folds[i])) {
+		mpz_ptr num, den;
+		num = mpq_numref(folds[i]);
+		den = mpq_denref(folds[i]);
+		if (mpz_cmp_ui(den, 1) != 0)
+			err("Invalid integer");
 
-			int cmp;
-			if ((sizeof(unsigned long) >= 8 && type.size <= 8)
-			    || type.size <= 4)
-			{
-				unsigned long x = 1UL << (type.size * 8 - type.issigned);
-				cmp = mpz_cmp_ui(num, x - 1);
-			} else {
-				mpz_t x;
+		int cmp;
+		if ((sizeof(unsigned long) >= 8 && type.size <= 8)
+			|| type.size <= 4)
+		{
+			unsigned long x = 1UL << (type.size * 8 - type.issigned);
+			cmp = mpz_cmp_ui(num, x - 1);
+		} else {
+			mpz_t x;
+			mp_bitcnt_t bits = type.size * 8;
+			if (type.issigned)
+				bits--;
+			mpz_init_set_ui(x, 1);
+			mpz_mul_2exp(x, x, bits);
+			mpz_sub_ui(x, x, 1);
+			cmp = mpz_cmp(num, x);
+			mpz_clear(x);
+		}
 
-				/* Compute ‘(1 << bits) - 1’ to get the maximum value for the
-				   integer type */
-				mp_bitcnt_t bits = type.size * 8;
-				if (type.issigned)
-					bits--;
-				mpz_init_set_ui(x, 1);
-				mpz_mul_2exp(x, x, bits);
-				mpz_sub_ui(x, x, 1);
+		if (cmp > 0)
+			err("Integer too large for datatype");
 
-				cmp = mpz_cmp(num, x);
-
-				mpz_clear(x);
-			}
-
-			if (cmp > 0)
-				err("Integer too large for datatype");
-
-			/* The max value of a u128 is length 39 */
-			char buf[40];
-			mpz_get_str(buf, 10, num);
-			*outv = LLVMConstIntOfString(type2llvm(ctx, type), buf, 10);
-		} else
-			err("not implemented 1");
+		/* The max value of a u128 is length 39 */
+		char buf[40];
+		mpz_get_str(buf, 10, num);
+		*outv = LLVMConstIntOfString(type2llvm(ctx, type), buf, 10);
 		return fwdnode(ast, i);
 	}
-	err("not implemented 2");
+
+	assert(ast.kinds[i] == ASTIDENT);
+	err("%s():%d: not implemented", __func__, __LINE__);
 }
 
 idx_t
 codegenstmt(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-            lexemes_t toks, idx_t i)
+            aux_t aux, lexemes_t toks, idx_t i)
 {
 	switch (ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return codegendecl(ctx, folds, types, ast, toks, i);
+		return codegendecl(ctx, folds, types, ast, aux, toks, i);
 	case ASTRET: {
 		idx_t expr = ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
@@ -136,7 +132,8 @@ codegenstmt(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 		}
 
 		LLVMValueRef v;
-		i = codegentypedexpr(ctx, folds, types, ast, toks, expr, types[i], &v);
+		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, expr, types[i],
+		                     &v);
 		(void)LLVMBuildRet(ctx.bob, v);
 		return i;
 	}
@@ -146,19 +143,19 @@ codegenstmt(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 }
 
 idx_t
-codegenblk(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+codegenblk(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
            lexemes_t toks, idx_t i)
 {
 	pair_t p = ast.kids[i];
 	for (i = p.lhs; i <= p.rhs;
-	     i = codegenstmt(ctx, folds, types, ast, toks, i))
+	     i = codegenstmt(ctx, folds, types, ast, aux, toks, i))
 		;
 	return i;
 }
 
 idx_t
 codegenfunc(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-            lexemes_t toks, idx_t i, const char *name)
+            aux_t aux, lexemes_t toks, idx_t i, const char *name)
 {
 	LLVMTypeRef ret = types[i].ret == NULL
 	                    ? LLVMVoidTypeInContext(ctx.ctx)
@@ -171,32 +168,37 @@ codegenfunc(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 	LLVMPositionBuilderAtEnd(ctx.bob, entry);
 
 	pair_t p = ast.kids[i];
-	i = codegenblk(ctx, folds, types, ast, toks, p.rhs);
+	i = codegenblk(ctx, folds, types, ast, aux, toks, p.rhs);
 	if (ast.kids[p.lhs].rhs == AST_EMPTY)
 		LLVMBuildRetVoid(ctx.bob);
 	return i;
 }
 
 idx_t
-codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
             lexemes_t toks, idx_t i)
 {
 	pair_t p = ast.kids[i];
-	/* Constants are purely a compiler concept; they aren’t generated
-	   into anything */
-	if (ast.kinds[i] == ASTCDECL && ast.kinds[p.rhs] != ASTFN)
-		return fwdnode(ast, i);
 
-	if (ast.kinds[p.rhs] == ASTFN) {
+	if (ast.kinds[i] == ASTCDECL) {
+		/* Constants are purely a compiler concept; they aren’t generated
+		   into anything */
+		if (ast.kinds[p.rhs] != ASTFN)
+			return fwdnode(ast, i);
+
 		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		/* TODO: Temporary allocator */
 		char *name = bufalloc(NULL, sv.len + 1, 1);
 		svtocstr(name, sv);
-		i = codegenfunc(ctx, folds, types, ast, toks, p.rhs, name);
+		i = codegenfunc(ctx, folds, types, ast, aux, toks, p.rhs, name);
 		free(name);
 		return i;
-	} else if (!types[i].isfloat) {
+	}
+
+	assert(ast.kinds[i] == ASTDECL);
+
+	if (!types[i].isfloat && aux.buf[p.lhs].decl.isstatic) {
 		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		/* TODO: Temporary allocator */
@@ -206,21 +208,35 @@ codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 		free(name);
 
 		LLVMValueRef v;
-		(void)codegentypedexpr(ctx, folds, types, ast, toks, ast.kids[i].rhs, types[i], &v);
+		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, p.rhs, types[i], &v);
 		LLVMSetInitializer(globl, v);
 		LLVMSetLinkage(globl, LLVMInternalLinkage);
+		return i;
+	}
+	if (!types[i].isfloat /* && !aux.buf[p.lhs].decl.isstatic */) {
+		strview_t sv = toks.strs[ast.lexemes[i]];
+		/* TODO: Namespace the name */
+		/* TODO: Temporary allocator */
+		char *name = bufalloc(NULL, sv.len + 1, 1);
+		LLVMTypeRef t = type2llvm(ctx, types[i]);
+		LLVMValueRef var, val;
+		var = LLVMBuildAlloca(ctx.bob, t, svtocstr(name, sv));
+		free(name);
+		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, p.rhs, types[i], &val);
+		LLVMBuildStore(ctx.bob, val, var);
+		return i;
+	}
 
-		return fwdnode(ast, i);
-	} else /* && types[i].isfloat */
-		err("%s():%d: TODO", __func__, __LINE__);
+	/* types[i].isfloat */
+	err("%s():%d: TODO", __func__, __LINE__);
 }
 
 void
-codegenast(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
+codegenast(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
            lexemes_t toks)
 {
 	for (idx_t i = 0; i < ast.len;
-	     i = codegendecl(ctx, folds, types, ast, toks, i))
+	     i = codegendecl(ctx, folds, types, ast, aux, toks, i))
 		;
 }
 

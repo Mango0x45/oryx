@@ -40,7 +40,7 @@ main(int argc, char **argv)
 	lexemes_t toks = lexstring(src, srclen);
 	ast_t ast = parsetoks(toks, &aux);
 	analyzeprog(ast, aux, toks, &a, &types, &scps, &folds);
-	codegen(argv[1], folds, scps, types, ast, toks);
+	codegen(argv[1], folds, scps, types, ast, aux, toks);
 
 #if DEBUG
 	for (size_t i = 0; i < ast.len; i++) {
