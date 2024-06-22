@@ -45,8 +45,8 @@ typedef struct type {
 	union {
 		struct {
 			uint8_t size; /* number of bytes */
-			bool issigned;
 			bool isfloat;
+			bool issigned;
 		};
 		struct  {
 			const struct type *params, *ret;
