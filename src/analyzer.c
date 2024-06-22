@@ -56,7 +56,7 @@ struct cfctx {
 	idx_t_ si;
 };
 
-static void analyzeast(struct scope *, struct type *, struct ast,
+static void analyzeast(struct scope *, struct type *, struct ast, struct aux,
                        struct lexemes, arena *)
 	__attribute__((nonnull));
 static void constfold(mpq_t *, struct scope *, struct type *, struct ast,
@@ -65,22 +65,27 @@ static void constfold(mpq_t *, struct scope *, struct type *, struct ast,
 
 /* Perform a pass over the entire AST and return an array of symbol
    tables, one for each scope in the program */
-static struct scope *gensymtabs(struct ast, struct lexemes, arena *)
+static struct scope *gensymtabs(struct ast, struct aux, struct lexemes, arena *)
 	__attribute__((returns_nonnull, nonnull));
 
 /* Find all the unordered symbols in the scope delimited by the inclusive
    indicies BEG and END in the AST, and accumulate them into a symbol
    table appended to the symbol table list.  UP is the index of the
    previous scopes symbol table in the symbol table list. */
-static void find_unordered_syms(struct scopes *, struct ast, struct lexemes,
-                                idx_t_ up, idx_t_ beg, idx_t_ end, arena *)
+static void find_unordered_syms(struct scopes *, struct ast, struct aux,
+                                struct lexemes, idx_t_ up, idx_t_ beg,
+                                idx_t_ end, arena *)
 	__attribute__((nonnull));
 
 typedef idx_t_ analyzer(struct azctx, struct scope *, struct type *, struct ast,
-                        struct lexemes, idx_t_)
+                        struct aux, struct lexemes, idx_t_)
+	__attribute__((nonnull));
+typedef idx_t_ constfolder(struct cfctx, mpq_t *, struct scope *, struct type *,
+                           struct ast, struct lexemes, idx_t_)
 	__attribute__((nonnull));
 
 static analyzer analyzeblk, analyzedecl, analyzeexpr, analyzefn, analyzestmt;
+static constfolder constfoldblk, constfolddecl, constfoldexpr, constfoldstmt;
 
 static const struct type *typegrab(struct ast, struct lexemes, idx_t_)
 	__attribute__((returns_nonnull));
@@ -98,14 +103,14 @@ const struct type *typelookup(const uchar *, size_t)
 	__attribute__((nonnull));
 
 void
-analyzeprog(struct ast ast, struct lexemes toks, arena *a, struct type **types,
-            struct scope **scps, mpq_t **folds)
+analyzeprog(struct ast ast, struct aux aux, struct lexemes toks, arena *a,
+            struct type **types, struct scope **scps, mpq_t **folds)
 {
 	*types = bufalloc(NULL, ast.len, sizeof(**types));
 	memset(*types, 0, ast.len * sizeof(**types));
 
-	*scps = gensymtabs(ast, toks, a);
-	analyzeast(*scps, *types, ast, toks, a);
+	*scps = gensymtabs(ast, aux, toks, a);
+	analyzeast(*scps, *types, ast, aux, toks, a);
 
 	*folds = bufalloc(NULL, ast.len, sizeof(**folds));
 	memset(*folds, 0, ast.len * sizeof(**folds));
@@ -113,17 +118,18 @@ analyzeprog(struct ast ast, struct lexemes toks, arena *a, struct type **types,
 }
 
 struct scope *
-gensymtabs(struct ast ast, struct lexemes toks, arena *a)
+gensymtabs(struct ast ast, struct aux aux, struct lexemes toks, arena *a)
 {
 	struct scopes scps = {.cap = 32};
 	scps.buf = bufalloc(NULL, scps.cap, sizeof(*scps.buf));
-	find_unordered_syms(&scps, ast, toks, 0, 0, ast.len - 1, a);
+	find_unordered_syms(&scps, ast, aux, toks, 0, 0, ast.len - 1, a);
 	return scps.buf;
 }
 
 void
-find_unordered_syms(struct scopes *scps, struct ast ast, struct lexemes toks,
-                    idx_t_ up, idx_t_ beg, idx_t_ end, arena *a)
+find_unordered_syms(struct scopes *scps, struct ast ast, struct aux aux,
+                    struct lexemes toks, idx_t_ up, idx_t_ beg, idx_t_ end,
+                    arena *a)
 {
 	if (scps->len == scps->cap) {
 		scps->cap *= 2;
@@ -138,10 +144,11 @@ find_unordered_syms(struct scopes *scps, struct ast ast, struct lexemes toks,
 	};
 
 	for (idx_t_ i = beg; likely(i <= end); i++) {
-		bool globl_var = ast.kinds[i] <= _AST_DECLS_END && beg == 0;
-		bool const_var = (ast.kinds[i] | 1) == ASTPCDECL;
+		bool isstatic = ast.kinds[i] <= _AST_DECLS_END
+		             && aux.buf[ast.kids[i].lhs].decl.isstatic;
+		bool isconst = ast.kinds[i] == ASTCDECL;
 
-		if (globl_var || const_var) {
+		if (isstatic || isconst) {
 			struct strview sv = toks.strs[ast.lexemes[i]];
 			idx_t_ *p = symtab_insert(&scp->map, sv, a);
 			if (*p != 0) {
@@ -151,7 +158,7 @@ find_unordered_syms(struct scopes *scps, struct ast ast, struct lexemes toks,
 			*p = i;
 		} else if (ast.kinds[i] == ASTBLK) {
 			struct pair p = ast.kids[i];
-			find_unordered_syms(scps, ast, toks, beg, p.lhs, p.rhs, a);
+			find_unordered_syms(scps, ast, aux, toks, beg, p.lhs, p.rhs, a);
 			i = p.rhs;
 		}
 	}
@@ -169,21 +176,21 @@ typegrab(struct ast ast, struct lexemes toks, idx_t_ i)
 
 void
 analyzeast(struct scope *scps, struct type *types, struct ast ast,
-           struct lexemes toks, arena *a)
+           struct aux aux, struct lexemes toks, arena *a)
 {
 	struct azctx ctx = {.a = a};
 	for (idx_t_ i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
 		assert(ast.kinds[i] <= _AST_DECLS_END);
-		analyzedecl(ctx, scps, types, ast, toks, i);
+		analyzedecl(ctx, scps, types, ast, aux, toks, i);
 	}
 }
 
 idx_t_
 analyzedecl(struct azctx ctx, struct scope *scps, struct type *types,
-            struct ast ast, struct lexemes toks, idx_t_ i)
+            struct ast ast, struct aux aux, struct lexemes toks, idx_t_ i)
 {
 	struct strview sv = toks.strs[ast.lexemes[i]];
-	if (ctx.si > 0 && (ast.kinds[i] | 1) == ASTPDECL) {
+	if (ctx.si > 0 && ast.kinds[i] == ASTDECL) {
 		idx_t_ *ip = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
 		if (*ip == 0)
 			*ip = i;
@@ -199,15 +206,17 @@ analyzedecl(struct azctx ctx, struct scope *scps, struct type *types,
 	struct type ltype, rtype;
 	ltype.kind = TYPE_UNSET;
 
-	assert(p.lhs != AST_EMPTY || p.rhs != AST_EMPTY);
+	idx_t_ typeidx = aux.buf[p.lhs].decl.type;
+
+	assert(typeidx != AST_EMPTY || p.rhs != AST_EMPTY);
 
 	idx_t_ ni;
 
-	if (p.lhs != AST_EMPTY)
-		ltype = *typegrab(ast, toks, p.lhs);
+	if (typeidx != AST_EMPTY)
+		ltype = *typegrab(ast, toks, typeidx);
 	if (p.rhs != AST_EMPTY) {
 		ctx.decl = sv;
-		ni = analyzeexpr(ctx, scps, types, ast, toks, p.rhs);
+		ni = analyzeexpr(ctx, scps, types, ast, aux, toks, p.rhs);
 		rtype = types[p.rhs];
 	} else
 		ni = fwdnode(ast, i);
@@ -223,12 +232,12 @@ analyzedecl(struct azctx ctx, struct scope *scps, struct type *types,
 
 idx_t_
 analyzestmt(struct azctx ctx, struct scope *scps, struct type *types,
-            struct ast ast, struct lexemes toks, idx_t_ i)
+            struct ast ast, struct aux aux, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return analyzedecl(ctx, scps, types, ast, toks, i);
+		return analyzedecl(ctx, scps, types, ast, aux, toks, i);
 	case ASTRET: {
 		idx_t_ expr = ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
@@ -238,7 +247,8 @@ analyzestmt(struct azctx ctx, struct scope *scps, struct type *types,
 		} else if (ctx.fnret.kind == TYPE_UNSET)
 			err("analyzer: Function has no return value");
 
-		idx_t_ ni = analyzeexpr(ctx, scps, types, ast, toks, ast.kids[i].rhs);
+		idx_t_ ni = analyzeexpr(ctx, scps, types, ast, aux, toks,
+		                        ast.kids[i].rhs);
 		if (!typecompat(ctx.fnret, types[ast.kids[i].rhs]))
 			err("analyzer: Return type mismatch");
 		return ni;
@@ -250,7 +260,7 @@ analyzestmt(struct azctx ctx, struct scope *scps, struct type *types,
 
 idx_t_
 analyzeexpr(struct azctx ctx, struct scope *scps, struct type *types,
-            struct ast ast, struct lexemes toks, idx_t_ i)
+            struct ast ast, struct aux aux, struct lexemes toks, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTNUMLIT:
@@ -277,7 +287,7 @@ analyzeexpr(struct azctx ctx, struct scope *scps, struct type *types,
 				switch (types[*ip].kind) {
 				case TYPE_UNSET:
 					ctx.si = lvl;
-					analyzedecl(ctx, scps, types, ast, toks, *ip);
+					analyzedecl(ctx, scps, types, ast, aux, toks, *ip);
 					break;
 				case TYPE_CHECKING:
 					err("analyzer: Circular definition of ‘%.*s’", SV_PRI_ARGS(sv));
@@ -291,7 +301,7 @@ analyzeexpr(struct azctx ctx, struct scope *scps, struct type *types,
 		err("analyzer: Unknown symbol ‘%.*s’", SV_PRI_ARGS(sv));
 	}
 	case ASTFN:
-		return analyzefn(ctx, scps, types, ast, toks, i);
+		return analyzefn(ctx, scps, types, ast, aux, toks, i);
 	default:
 		__builtin_unreachable();
 	}
@@ -299,7 +309,7 @@ analyzeexpr(struct azctx ctx, struct scope *scps, struct type *types,
 
 idx_t_
 analyzefn(struct azctx ctx, struct scope *scps, struct type *types,
-          struct ast ast, struct lexemes toks, idx_t_ i)
+          struct ast ast, struct aux aux, struct lexemes toks, idx_t_ i)
 {
 	struct type t = {.kind = TYPE_FN};
 	struct pair p = ast.kids[i];
@@ -312,12 +322,12 @@ analyzefn(struct azctx ctx, struct scope *scps, struct type *types,
 	} else
 		ctx.fnret.kind = TYPE_UNSET;
 	types[i] = t;
-	return analyzeblk(ctx, scps, types, ast, toks, p.rhs);
+	return analyzeblk(ctx, scps, types, ast, aux, toks, p.rhs);
 }
 
 idx_t_
 analyzeblk(struct azctx ctx, struct scope *scps, struct type *types,
-           struct ast ast, struct lexemes toks, idx_t_ i)
+           struct ast ast, struct aux aux, struct lexemes toks, idx_t_ i)
 {
 	struct pair p = ast.kids[i];
 
@@ -330,20 +340,13 @@ analyzeblk(struct azctx ctx, struct scope *scps, struct type *types,
 	for (i = p.lhs; i <= p.rhs;) {
 		if (chkrets && returns(ast, i))
 			hasret = true;
-		i = analyzestmt(ctx, scps, types, ast, toks, i);
+		i = analyzestmt(ctx, scps, types, ast, aux, toks, i);
 	}
 	if (chkrets && !hasret)
 		err("analyzer: Function doesn’t return on all paths");
 
 	return i;
 }
-
-static idx_t_
-constfolddecl(struct cfctx ctx, mpq_t *folds, struct scope *scps,
-              struct type *types, struct ast ast, struct lexemes toks, idx_t_ i);
-static idx_t_
-constfoldexpr(struct cfctx ctx, mpq_t *folds, struct scope *scps,
-              struct type *types, struct ast ast, struct lexemes toks, idx_t_ i);
 
 idx_t_
 constfoldstmt(struct cfctx ctx, mpq_t *folds, struct scope *scps,
@@ -352,8 +355,6 @@ constfoldstmt(struct cfctx ctx, mpq_t *folds, struct scope *scps,
 	switch (ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-	case ASTPCDECL:
-	case ASTPDECL:
 		return constfolddecl(ctx, folds, scps, types, ast, toks, i);
 	case ASTRET:
 		return constfoldexpr(ctx, folds, scps, types, ast, toks,
@@ -425,10 +426,8 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, struct scope *scps,
 			} else {
 				switch (ast.kinds[*ip]) {
 				case ASTDECL:
-				case ASTPDECL:
 					break;
-				case ASTCDECL:
-				case ASTPCDECL: {
+				case ASTCDECL: {
 					idx_t_ expr = ast.kids[*ip].rhs;
 					assert(expr != AST_EMPTY);
 #if DEBUG
@@ -493,9 +492,7 @@ returns(struct ast ast, idx_t_ i)
 {
 	switch (ast.kinds[i]) {
 	case ASTDECL:
-	case ASTPDECL:
 	case ASTCDECL:
-	case ASTPCDECL:
 		return false;
 	case ASTRET:
 		return true;

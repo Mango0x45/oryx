@@ -14,15 +14,17 @@
 
 #if DEBUG
 #	define AST_DFLT_CAP (8)
+#	define AUX_DFLT_CAP (8)
 #else
 #	define AST_DFLT_CAP (2048)
+#	define AUX_DFLT_CAP (128)
 #endif
 #define SIZE_WDTH (sizeof(size_t) * CHAR_BIT)
 
-typedef idx_t_ parsefn(struct ast *, struct lexemes)
+typedef idx_t_ parsefn(struct ast *, struct aux *, struct lexemes)
 	__attribute__((nonnull));
 static parsefn parseblk, parseexpr, parsefunc, parseproto, parsestmt, parsetype;
-static idx_t_ parsedecl(struct ast *, struct lexemes, bool)
+static idx_t_ parsedecl(struct ast *, struct aux *, struct lexemes, bool)
 	__attribute__((nonnull));
 
 static struct ast mkast(void);
@@ -42,7 +44,6 @@ fwdnode(struct ast ast, idx_t_ i)
 			i = ast.kids[i].lhs == AST_EMPTY ? i + 1 : ast.kids[i].rhs;
 			break;
 		case ASTDECL:
-		case ASTPDECL:
 			i = ast.kids[i].rhs == AST_EMPTY ? ast.kids[i].lhs
 			                                 : ast.kids[i].rhs;
 			break;
@@ -54,7 +55,6 @@ fwdnode(struct ast ast, idx_t_ i)
 		case ASTBINADD:
 		case ASTBINSUB:
 		case ASTCDECL:
-		case ASTPCDECL:
 		case ASTFN:
 			i = ast.kids[i].rhs;
 			break;
@@ -72,12 +72,13 @@ fwdnode(struct ast ast, idx_t_ i)
 }
 
 struct ast
-parsetoks(struct lexemes toks)
+parsetoks(struct lexemes toks, struct aux *aux)
 {
 	struct ast ast = mkast();
+	aux->buf = bufalloc(NULL, aux->cap = AUX_DFLT_CAP, sizeof(*aux->buf));
 
 	for (;;) {
-		(void)parsedecl(&ast, toks, true);
+		(void)parsedecl(&ast, aux, toks, true);
 		if (toks.kinds[toksidx] == LEXEOF)
 			break;
 	}
@@ -86,7 +87,7 @@ parsetoks(struct lexemes toks)
 }
 
 idx_t_
-parseblk(struct ast *ast, struct lexemes toks)
+parseblk(struct ast *ast, struct aux *aux, struct lexemes toks)
 {
 	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
@@ -98,12 +99,12 @@ parseblk(struct ast *ast, struct lexemes toks)
 		err("parser: Expected left brace");
 
 	if (toks.kinds[toksidx] != LEXRBRACE) {
-		idx_t_ stmt = parsestmt(ast, toks);
+		idx_t_ stmt = parsestmt(ast, aux, toks);
 		ast->kids[i].lhs = ast->kids[i].rhs = stmt;
 	}
 
 	while (toks.kinds[toksidx] != LEXRBRACE) {
-		idx_t_ stmt = parsestmt(ast, toks);
+		idx_t_ stmt = parsestmt(ast, aux, toks);
 		ast->kids[i].rhs = stmt;
 	}
 
@@ -112,18 +113,23 @@ parseblk(struct ast *ast, struct lexemes toks)
 }
 
 idx_t_
-parsedecl(struct ast *ast, struct lexemes toks, bool toplvl)
+parsedecl(struct ast *ast, struct aux *aux, struct lexemes toks, bool toplvl)
 {
-	idx_t_ i = astalloc(ast);
+	idx_t_ i = astalloc(ast), j = aux->len++;
 
-	bool pub;
+	if (aux->len > aux->cap) {
+		aux->cap *= 2;
+		aux->buf = bufalloc(aux->buf, aux->cap, sizeof(*aux->buf));
+	}
+
+	aux->buf[j].decl.isstatic = toplvl;
 	if (toplvl && toks.kinds[toksidx] == LEXIDENT
 	    && strview_eq(SV("pub"), toks.strs[toksidx]))
 	{
-		pub = true;
+		aux->buf[j].decl.ispub = true;
 		ast->lexemes[i] = ++toksidx;
 	} else {
-		pub = false;
+		aux->buf[j].decl.ispub = false;
 		ast->lexemes[i] = toksidx;
 	}
 
@@ -132,32 +138,33 @@ parsedecl(struct ast *ast, struct lexemes toks, bool toplvl)
 	if (toks.kinds[toksidx++] != LEXCOLON)
 		err("parser: Expected colon");
 
-	idx_t_ lhs = toks.kinds[toksidx] == LEXIDENT ? parsetype(ast, toks)
-	                                             : AST_EMPTY;
-	ast->kids[i].lhs = lhs;
+	aux->buf[j].decl.type = toks.kinds[toksidx] == LEXIDENT
+	                          ? parsetype(ast, aux, toks)
+	                          : AST_EMPTY;
+	ast->kids[i].lhs = j;
 
 	switch (toks.kinds[toksidx++]) {
 	case LEXSEMI:
-		if (ast->kids[i].lhs == AST_EMPTY)
+		if (aux->buf[j].decl.type == AST_EMPTY)
 			err("parser: No type provided in non-assigning declaration");
-		ast->kinds[i] = ASTDECL + pub;
+		ast->kinds[i] = ASTDECL;
 		ast->kids[i].rhs = AST_EMPTY;
 		return i;
 	case LEXCOLON:
-		ast->kinds[i] = ASTCDECL + pub;
+		ast->kinds[i] = ASTCDECL;
 		break;
 	case LEXEQ:
-		ast->kinds[i] = ASTDECL + pub;
+		ast->kinds[i] = ASTDECL;
 		break;
 	default:
 		err("parser: Expected colon, equals, or semicolon");
 	}
 
 	bool func = toks.kinds[toksidx] == LEXLPAR;
-	if (func && ast->kinds[i] - pub == ASTDECL)
+	if (func && ast->kinds[i] == ASTDECL)
 		err("Cannot assign function to mutable variable");
 
-	idx_t_ rhs = (func ? parsefunc : parseexpr)(ast, toks);
+	idx_t_ rhs = (func ? parsefunc : parseexpr)(ast, aux, toks);
 	ast->kids[i].rhs = rhs;
 	if (!func && toks.kinds[toksidx++] != LEXSEMI)
 		err("parser: Expected semicolon");
@@ -166,7 +173,7 @@ parsedecl(struct ast *ast, struct lexemes toks, bool toplvl)
 }
 
 idx_t_
-parsefunc(struct ast *ast, struct lexemes toks)
+parsefunc(struct ast *ast, struct aux *aux, struct lexemes toks)
 {
 	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
@@ -174,8 +181,8 @@ parsefunc(struct ast *ast, struct lexemes toks)
 	assert(toks.kinds[toksidx] == LEXLPAR);
 
 	ast->kinds[i] = ASTFN;
-	idx_t_ lhs = parseproto(ast, toks);
-	idx_t_ rhs = parseblk(ast, toks);
+	idx_t_ lhs = parseproto(ast, aux, toks);
+	idx_t_ rhs = parseblk(ast, aux, toks);
 	ast->kids[i].lhs = lhs;
 	ast->kids[i].rhs = rhs;
 
@@ -183,8 +190,9 @@ parsefunc(struct ast *ast, struct lexemes toks)
 }
 
 idx_t_
-parseexpr(struct ast *ast, struct lexemes toks)
+parseexpr(struct ast *ast, struct aux *aux, struct lexemes toks)
 {
+	(void)aux;
 	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
 
@@ -205,7 +213,7 @@ parseexpr(struct ast *ast, struct lexemes toks)
 }
 
 idx_t_
-parseproto(struct ast *ast, struct lexemes toks)
+parseproto(struct ast *ast, struct aux *aux, struct lexemes toks)
 {
 	idx_t_ i = astalloc(ast);
 	ast->lexemes[i] = toksidx;
@@ -217,14 +225,14 @@ parseproto(struct ast *ast, struct lexemes toks)
 	if (toks.kinds[toksidx++] != LEXRPAR)
 		err("parser: Expected right parenthesis");
 
-	idx_t_ rhs = toks.kinds[toksidx] == LEXIDENT ? parsetype(ast, toks)
+	idx_t_ rhs = toks.kinds[toksidx] == LEXIDENT ? parsetype(ast, aux, toks)
 	                                             : AST_EMPTY;
 	ast->kids[i].rhs = rhs;
 	return i;
 }
 
 idx_t_
-parsestmt(struct ast *ast, struct lexemes toks)
+parsestmt(struct ast *ast, struct aux *aux, struct lexemes toks)
 {
 	idx_t_ i;
 
@@ -237,22 +245,24 @@ parsestmt(struct ast *ast, struct lexemes toks)
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;
 
-		idx_t_ rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, toks)
+		idx_t_ rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, aux, toks)
 		                                            : AST_EMPTY;
 		ast->kids[i].rhs = rhs;
 		if (toks.kinds[toksidx++] != LEXSEMI)
 			err("parser: Expected semicolon");
-	} else if (toks.kinds[toksidx + 1] == LEXCOLON)
-		i = parsedecl(ast, toks, false);
-	else
+	} else if (toks.kinds[toksidx + 1] == LEXCOLON) {
+		i = parsedecl(ast, aux, toks, false);
+	} else {
 		err("parser: Invalid statement");
+	}
 
 	return i;
 }
 
 idx_t_
-parsetype(struct ast *ast, struct lexemes toks)
+parsetype(struct ast *ast, struct aux *aux, struct lexemes toks)
 {
+	(void)aux;
 	idx_t_ i = astalloc(ast);
 	ast->kinds[i] = ASTTYPE;
 	ast->lexemes[i] = toksidx;

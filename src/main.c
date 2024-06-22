@@ -31,12 +31,13 @@ main(int argc, char **argv)
 
 	arena a = NULL;
 	mpq_t *folds;
+	struct aux aux;
 	struct type *types;
 	struct scope *scps;
 
 	struct lexemes toks = lexstring(src, srclen);
-	struct ast ast = parsetoks(toks);
-	analyzeprog(ast, toks, &a, &types, &scps, &folds);
+	struct ast ast = parsetoks(toks, &aux);
+	analyzeprog(ast, aux, toks, &a, &types, &scps, &folds);
 	codegen(argv[1], folds, scps, types, ast, toks);
 
 #if DEBUG
@@ -51,6 +52,7 @@ main(int argc, char **argv)
 	free(types);
 	lexemes_free(toks);
 	ast_free(ast);
+	aux_free(aux);
 	arena_free(&a);
 #endif
 	return EXIT_SUCCESS;

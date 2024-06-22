@@ -56,8 +56,8 @@ struct type {
 	};
 };
 
-void analyzeprog(struct ast, struct lexemes, arena *, struct type **,
-                 struct scope **, mpq_t **)
+void analyzeprog(struct ast, struct aux, struct lexemes, arena *,
+                 struct type **, struct scope **, mpq_t **)
 	__attribute__((nonnull));
 
 #endif /* !ORYX_ANALYZER_H */

@@ -16,22 +16,14 @@ enum {
 	   public by if the LSB is set. */
 
 	/* Variable declaration, lhs and rhs may be unused
-	   ‘x: lhs = rhs’ */
+	   ‘x := rhs’; aux[lhs].decl */
 	ASTDECL,
 
-	/* Public variable declaration, lhs and rhs may be unused
-	   ‘pub x: lhs = rhs’ */
-	ASTPDECL,
-
 	/* Constant declaration, lhs may be unused
-	   ‘x: lhs : rhs’ */
+	   ‘x :: rhs’; aux[lhs].decl */
 	ASTCDECL,
 
-	/* Public constant declaration, lhs may be unused
-	   ‘pub x: lhs : rhs’ */
-	ASTPCDECL,
-
-	_AST_DECLS_END = ASTPCDECL,
+	_AST_DECLS_END = ASTCDECL,
 
 	/* Function prototype
 	   ‘(a: b, c: d) rhs’; aux[lhs].fnproto */
@@ -76,6 +68,17 @@ static_assert(_AST_LAST_ENT - 1 <= (ast_kind_t_)-1,
 #define AST_EMPTY     ((idx_t_)-1)
 #define AST_SOA_BLKSZ (sizeof(ast_kind_t_) + sizeof(idx_t_) * 3)
 
+struct aux {
+	union {
+		struct {
+			idx_t_ type;
+			bool ispub;
+			bool isstatic;
+		} decl;
+	} *buf;
+	size_t len, cap;
+};
+
 struct ast {
 	ast_kind_t_ *kinds;
 	idx_t_ *lexemes;
@@ -86,9 +89,12 @@ struct ast {
 };
 
 #define ast_free(x) free((x).kinds)
+#define aux_free(x) free((x).buf)
 
-/* Parse the tokens in TOKS into an abstract syntax tree */
-struct ast parsetoks(struct lexemes toks);
+/* Parse the tokens in TOKS into an abstract syntax tree, and store
+   auxilliary information in AUX */
+struct ast parsetoks(struct lexemes toks, struct aux *aux)
+	__attribute__((nonnull));
 
 /* Starting from the node at indent I in AST, return the index of the next node
    in AST that is of the same nest-depth as I */

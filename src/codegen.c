@@ -42,10 +42,7 @@ void
 codegen(const char *file, mpq_t *folds, struct scope *scps, struct type *types,
         struct ast ast, struct lexemes toks)
 {
-	(void)types;
 	(void)scps;
-	(void)ast;
-	(void)toks;
 	char *triple = LLVMGetDefaultTargetTriple();
 
 	struct cgctx ctx;
@@ -75,19 +72,40 @@ codegen(const char *file, mpq_t *folds, struct scope *scps, struct type *types,
 }
 
 idx_t_
+codegenfunc(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
+            struct lexemes toks, idx_t_ i, const char *name)
+{
+	LLVMTypeRef ret = type2llvm(ctx, types[ast.kids[i].rhs]);
+	LLVMTypeRef ft = LLVMFunctionType(ret, NULL, 0, false);
+	LLVMValueRef fn = LLVMAddFunction(ctx.mod, name, ft);
+	LLVMBasicBlockRef entry = LLVMAppendBasicBlock(fn, "entry");
+
+	struct pair p = ast.kids[i];
+	// for (i = p.lhs; i <= p.rhs; i = codegenstmt(ctx, folds, types, ast, toks, i))
+	// 	;
+	return fwdnode(ast, p.rhs);
+}
+
+idx_t_
 codegendecl(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
             struct lexemes toks, idx_t_ i)
 {
 	/* Constants are purely a compiler concept; they aren’t generated
 	   into anything */
-	if ((ast.kinds[i] | 1) == ASTPCDECL)
+	if (ast.kinds[i] == ASTCDECL)
 		return fwdnode(ast, i);
 
 	struct pair p = ast.kids[i];
-	switch (ast.kinds[p.rhs]) {
-	case ASTFN:
-		err("%s():%d: TODO", __func__, __LINE__);
-	default: {
+	if (ast.kinds[p.rhs] == ASTFN) {
+		struct strview sv = toks.strs[ast.lexemes[i]];
+		/* TODO: Namespace the name */
+		/* TODO: Temporary allocator */
+		char *name = bufalloc(NULL, sv.len + 1, 1);
+		svtocstr(name, sv);
+		i = codegenfunc(ctx, folds, types, ast, toks, p.rhs, name);
+		free(name);
+		return i;
+	} else if (!types[i].isfloat) {
 		struct strview sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		/* TODO: Temporary allocator */
@@ -96,7 +114,13 @@ codegendecl(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
 		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, svtocstr(name, sv));
 		free(name);
 
-		/* TODO: Assert that the fold is an integer */
+#if DEBUG /* Assert that the fold is an integer */
+		mpz_t den;
+		mpq_canonicalize(folds[p.rhs]);
+		mpq_get_den(den, folds[p.rhs]);
+		assert(mpz_cmp_si(den, 1) == 0);
+		mpz_clear(den);
+#endif
 
 		/* The max value of a u128 is length 39 */
 		char buf[40];
@@ -106,8 +130,8 @@ codegendecl(struct cgctx ctx, mpq_t *folds, struct type *types, struct ast ast,
 		LLVMSetLinkage(globl, LLVMInternalLinkage);
 
 		return fwdnode(ast, i);
-	}
-	}
+	} else /* && types[i].isfloat */
+		err("%s():%d: TODO", __func__, __LINE__);
 }
 
 void
@@ -126,9 +150,16 @@ type2llvm(struct cgctx ctx, struct type t)
 	case TYPE_FN:
 		err("codegen: %s: Not implemented for function types", __func__);
 	case TYPE_NUM:
-		/* TODO: Floats */
-		if (t.isfloat)
-			err("codegen: %s: Not implemented for floats", __func__);
+		if (t.isfloat) {
+			switch (t.size) {
+			case  2: return LLVMHalfTypeInContext(ctx.ctx);
+			case  4: return LLVMFloatTypeInContext(ctx.ctx);
+			case  0:
+			case  8: return LLVMDoubleTypeInContext(ctx.ctx);
+			case 16: return LLVMFP128TypeInContext(ctx.ctx);
+			default: __builtin_unreachable();
+			}
+		}
 		/* TODO: Arbitrary precision */
 		if (t.size == 0)
 			return LLVMInt64TypeInContext(ctx.ctx);
