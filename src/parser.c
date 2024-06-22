@@ -99,7 +99,7 @@ parseblk(ast_t *ast, aux_t *aux, lexemes_t toks)
 	ast->lexemes[i] = toksidx;
 	ast->kinds[i] = ASTBLK;
 	ast->kids[i].lhs = AST_EMPTY;
-	ast->kids[i].rhs = 0;
+	ast->kids[i].rhs = i;
 
 	if (toks.kinds[toksidx++] != LEXLBRACE)
 		err("parser: Expected left brace");
