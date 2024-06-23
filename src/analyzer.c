@@ -423,7 +423,7 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 					idx_t expr = ast.kids[sym->i].rhs;
 					assert(expr != AST_EMPTY);
 					MPQCPY(folds[i], folds[expr]);
-					if (MPQ_IS_INIT(folds[i])) {
+					if (!MPQ_IS_INIT(folds[i])) {
 						ctx.si = lvl;
 						(void)constfolddecl(ctx, folds, scps, types,
 						                    ast, toks, sym->i);
