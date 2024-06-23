@@ -98,7 +98,7 @@ static bool returns(ast_t, idx_t);
 /* Index the symbol table M with the key SV, returning a pointer to the
    value.  If no entry exists and A is non-null, a pointer to a newly
    allocated (and zeroed) value is returned, NULL otherwise. */
-static idx_t *symtab_insert(symtab **m, strview_t sv, arena_t *a)
+static idx_t *symtab_insert(symtab_t **m, strview_t sv, arena_t *a)
 	__attribute__((nonnull(1)));
 
 /* Defined in primitives.gperf */
@@ -515,7 +515,7 @@ typecompat(type_t lhs, type_t rhs)
 }
 
 idx_t *
-symtab_insert(symtab **m, strview_t k, arena_t *a)
+symtab_insert(symtab_t **m, strview_t k, arena_t *a)
 {
 	for (uint64_t h = strview_hash(k); *m; h <<= 2) {
 		if (strview_eq(k, (*m)->key))
@@ -524,7 +524,7 @@ symtab_insert(symtab **m, strview_t k, arena_t *a)
 	}
 	if (a == NULL)
 		return NULL;
-	*m = arena_new(a, symtab, 1);
+	*m = arena_new(a, symtab_t, 1);
 	(*m)->key = k;
 	(*m)->val = AST_EMPTY;
 	return &(*m)->val;
