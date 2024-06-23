@@ -16,6 +16,14 @@
 #include "strview.h"
 #include "types.h"
 
+/* In debug builds we want to actually alloc a new mpq_t so that it’s
+   easier to free memory without doing a double free */
+#if DEBUG
+#	define MPQCPY(x, y) do { mpq_init(x); mpq_set(x, y); } while (false)
+#else
+#	define MPQCPY(x, y) (*(x) = *(y))
+#endif
+
 /* Mapping of symbol names to their indicies in the AST */
 typedef struct symtab {
 	struct symtab *child[4];
@@ -379,10 +387,7 @@ idx_t
 constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
               ast_t ast, lexemes_t toks, idx_t i)
 {
-	/* Check if this expression has already been constant folded.  This
-	   works because when an mpq_t is initialized via mpq_init(), it is
-	   set to 0/1 meaning that the denominator pointer can’t be NULL. */
-	if ((*folds[i])._mp_den._mp_d != NULL)
+	if (MPQ_IS_INIT(folds[i]))
 		return fwdnode(ast, i);
 
 	switch (ast.kinds[i]) {
@@ -427,23 +432,13 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 				case ASTCDECL: {
 					idx_t expr = ast.kids[*ip].rhs;
 					assert(expr != AST_EMPTY);
-#if DEBUG
-					mpq_init(folds[i]);
-					mpq_set(folds[i], folds[expr]);
-#else
-					*folds[i] = *folds[expr];
-#endif
-					if ((*folds[i])._mp_den._mp_d == NULL) {
+					MPQCPY(folds[i], folds[expr]);
+					if (MPQ_IS_INIT(folds[i])) {
 						ctx.si = lvl;
 						(void)constfolddecl(ctx, folds, scps, types, ast, toks,
 						                    *ip);
-#if DEBUG
-						mpq_init(folds[i]);
-						mpq_set(folds[i], folds[expr]);
-#else
-						*folds[i] = *folds[expr];
-#endif
-						assert((*folds[i])._mp_den._mp_d != NULL);
+						MPQCPY(folds[i], folds[expr]);
+						assert(MPQ_IS_INIT(folds[i]));
 					}
 					break;
 				}
