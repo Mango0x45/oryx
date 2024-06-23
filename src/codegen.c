@@ -20,70 +20,80 @@
 /* A context structure we can pass to all the codegen functions just so they
    have easy access to everything */
 struct cgctx {
-	arena_t *a;
+	arena_t   *a;
 	scratch_t *s;
+
+	mpq_t     *folds;
+	scope_t   *scps;
+	type_t    *types;
+	ast_t     ast;
+	aux_t     aux;
+	lexemes_t toks;
+
 	LLVMContextRef ctx;
-	LLVMModuleRef mod;
+	LLVMModuleRef  mod;
 	LLVMBuilderRef bob;
-	LLVMValueRef func;
+	LLVMValueRef   func;
+
 	strview_t namespace;
 };
 
 static LLVMTypeRef type2llvm(struct cgctx, type_t);
 
-static void codegenast(struct cgctx, mpq_t *, type_t *, ast_t, aux_t ,
-                       lexemes_t)
-	__attribute__((nonnull));
+static void codegenast(struct cgctx);
 
 void
 codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
         ast_t ast, aux_t aux, lexemes_t toks)
 {
-	(void)scps;
 	char *triple = LLVMGetDefaultTargetTriple();
+	LLVMContextRef llctx = LLVMContextCreate();
 
-	struct cgctx ctx;
-	ctx.a = &(arena_t){0};
-	ctx.s = &(scratch_t){0};
-	ctx.namespace.p = NULL;
-	ctx.ctx = LLVMContextCreate();
-	ctx.mod = LLVMModuleCreateWithNameInContext("oryx", ctx.ctx);
-	ctx.bob = LLVMCreateBuilderInContext(ctx.ctx);
+	struct cgctx ctx = {
+		.a = &(arena_t){0},
+		.s = &(scratch_t){0},
+
+		.folds = folds,
+		.scps  = scps,
+		.types = types,
+		.ast   = ast,
+		.aux   = aux,
+		.toks  = toks,
+
+		.ctx = llctx,
+		.mod = LLVMModuleCreateWithNameInContext("oryx", llctx),
+		.bob = LLVMCreateBuilderInContext(llctx),
+	};
+
 	LLVMSetSourceFileName(ctx.mod, file, strlen(file));
 	LLVMSetTarget(ctx.mod, triple);
 	LLVMDisposeMessage(triple);
 
-	codegenast(ctx, folds, types, ast, aux, toks);
-
-	arena_free(ctx.a);
-	tmpfree(ctx.s);
-
-	LLVMDisposeBuilder(ctx.bob);
+	codegenast(ctx);
 
 	char *error = NULL;
 	if (LLVMVerifyModule(ctx.mod, LLVMReturnStatusAction, &error) == 1)
 		err("codegen: %s", error);
 
+	tmpfree(ctx.s);
+	arena_free(ctx.a);
+	LLVMDisposeBuilder(ctx.bob);
 	LLVMDisposeMessage(error);
 	LLVMDumpModule(ctx.mod);
 	LLVMDisposeModule(ctx.mod);
 	LLVMContextDispose(ctx.ctx);
 }
 
-static idx_t
-codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-            aux_t aux, lexemes_t toks, idx_t i);
+static idx_t codegendecl(struct cgctx ctx, idx_t);
 
 idx_t
-codegentypedexpr(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-                 aux_t aux, lexemes_t toks, idx_t i, type_t type,
-                 LLVMValueRef *outv)
+codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 {
 	/* If true, implies numeric constant */
-	if (MPQ_IS_INIT(folds[i])) {
+	if (MPQ_IS_INIT(ctx.folds[i])) {
 		mpz_ptr num, den;
-		num = mpq_numref(folds[i]);
-		den = mpq_denref(folds[i]);
+		num = mpq_numref(ctx.folds[i]);
+		den = mpq_denref(ctx.folds[i]);
 		if (mpz_cmp_ui(den, 1) != 0)
 			err("Invalid integer");
 
@@ -112,31 +122,29 @@ codegentypedexpr(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 		char buf[40];
 		mpz_get_str(buf, 10, num);
 		*outv = LLVMConstIntOfString(type2llvm(ctx, type), buf, 10);
-		return fwdnode(ast, i);
+		return fwdnode(ctx.ast, i);
 	}
 
-	assert(ast.kinds[i] == ASTIDENT);
+	assert(ctx.ast.kinds[i] == ASTIDENT);
 	err("%s():%d: not implemented", __func__, __LINE__);
 }
 
 idx_t
-codegenstmt(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-            aux_t aux, lexemes_t toks, idx_t i)
+codegenstmt(struct cgctx ctx, idx_t i)
 {
-	switch (ast.kinds[i]) {
+	switch (ctx.ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return codegendecl(ctx, folds, types, ast, aux, toks, i);
+		return codegendecl(ctx, i);
 	case ASTRET: {
-		idx_t expr = ast.kids[i].rhs;
+		idx_t expr = ctx.ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
 			LLVMBuildRetVoid(ctx.bob);
-			return fwdnode(ast, i);
+			return fwdnode(ctx.ast, i);
 		}
 
 		LLVMValueRef v;
-		i = codegentypedexpr(ctx, folds, types, ast, aux,
-		                     toks, expr, types[i], &v);
+		i = codegentypedexpr(ctx, expr, ctx.types[i], &v);
 		(void)LLVMBuildRet(ctx.bob, v);
 		return i;
 	}
@@ -146,23 +154,20 @@ codegenstmt(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 }
 
 idx_t
-codegenblk(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
-           lexemes_t toks, idx_t i)
+codegenblk(struct cgctx ctx, idx_t i)
 {
-	pair_t p = ast.kids[i];
-	for (i = p.lhs; i <= p.rhs;
-	     i = codegenstmt(ctx, folds, types, ast, aux, toks, i))
+	pair_t p = ctx.ast.kids[i];
+	for (i = p.lhs; i <= p.rhs; i = codegenstmt(ctx, i))
 		;
 	return i;
 }
 
 idx_t
-codegenfunc(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
-            aux_t aux, lexemes_t toks, idx_t i, const char *name)
+codegenfunc(struct cgctx ctx, idx_t i, const char *name)
 {
-	LLVMTypeRef ret = types[i].ret == NULL
+	LLVMTypeRef ret = ctx.types[i].ret == NULL
 	                    ? LLVMVoidTypeInContext(ctx.ctx)
-	                    : type2llvm(ctx, *types[i].ret);
+	                    : type2llvm(ctx, *ctx.types[i].ret);
 
 	LLVMTypeRef ft = LLVMFunctionType(ret, NULL, 0, false);
 	ctx.func = LLVMAddFunction(ctx.mod, name, ft);
@@ -170,55 +175,54 @@ codegenfunc(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 	                                                        "entry");
 	LLVMPositionBuilderAtEnd(ctx.bob, entry);
 
-	pair_t p = ast.kids[i];
-	i = codegenblk(ctx, folds, types, ast, aux, toks, p.rhs);
-	if (ast.kids[p.lhs].rhs == AST_EMPTY)
+	pair_t p = ctx.ast.kids[i];
+	i = codegenblk(ctx, p.rhs);
+	if (ctx.ast.kids[p.lhs].rhs == AST_EMPTY)
 		LLVMBuildRetVoid(ctx.bob);
 	return i;
 }
 
 idx_t
-codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
-            lexemes_t toks, idx_t i)
+codegendecl(struct cgctx ctx, idx_t i)
 {
-	pair_t p = ast.kids[i];
+	pair_t p = ctx.ast.kids[i];
 
-	if (ast.kinds[i] == ASTCDECL) {
+	if (ctx.ast.kinds[i] == ASTCDECL) {
 		/* Constants are purely a compiler concept; they aren’t generated
 		   into anything */
-		if (ast.kinds[p.rhs] != ASTFN)
-			return fwdnode(ast, i);
+		if (ctx.ast.kinds[p.rhs] != ASTFN)
+			return fwdnode(ctx.ast, i);
 
-		strview_t sv = toks.strs[ast.lexemes[i]];
+		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
 		svtocstr(name, sv);
-		return codegenfunc(ctx, folds, types, ast, aux, toks, p.rhs, name);
+		return codegenfunc(ctx, p.rhs, name);
 	}
 
-	assert(ast.kinds[i] == ASTDECL);
+	assert(ctx.ast.kinds[i] == ASTDECL);
 
-	if (!types[i].isfloat && aux.buf[p.lhs].decl.isstatic) {
-		strview_t sv = toks.strs[ast.lexemes[i]];
+	if (!ctx.types[i].isfloat && ctx.aux.buf[p.lhs].decl.isstatic) {
+		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
-		LLVMTypeRef t = type2llvm(ctx, types[i]);
+		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
 		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, svtocstr(name, sv));
 
 		LLVMValueRef v;
-		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, p.rhs, types[i], &v);
+		i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &v);
 		LLVMSetInitializer(globl, v);
 		LLVMSetLinkage(globl, LLVMInternalLinkage);
 		return i;
 	}
-	if (!types[i].isfloat /* && !aux.buf[p.lhs].decl.isstatic */) {
-		strview_t sv = toks.strs[ast.lexemes[i]];
+	if (!ctx.types[i].isfloat /* && !aux.buf[p.lhs].decl.isstatic */) {
+		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
-		LLVMTypeRef t = type2llvm(ctx, types[i]);
+		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
 		LLVMValueRef var, val;
 		var = LLVMBuildAlloca(ctx.bob, t, svtocstr(name, sv));
-		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, p.rhs, types[i], &val);
+		i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &val);
 		LLVMBuildStore(ctx.bob, val, var);
 		return i;
 	}
@@ -228,11 +232,9 @@ codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
 }
 
 void
-codegenast(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
-           lexemes_t toks)
+codegenast(struct cgctx ctx)
 {
-	for (idx_t i = 0; i < ast.len;
-	     i = codegendecl(ctx, folds, types, ast, aux, toks, i))
+	for (idx_t i = 0; i < ctx.ast.len; i = codegendecl(ctx, i))
 		;
 }
 
