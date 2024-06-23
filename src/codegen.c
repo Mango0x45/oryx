@@ -20,7 +20,7 @@
 /* A context structure we can pass to all the codegen functions just so they
    have easy access to everything */
 struct cgctx {
-	arena_t a;
+	arena_t *a;
 	scratch_t *s;
 	LLVMContextRef ctx;
 	LLVMModuleRef mod;
@@ -43,7 +43,7 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 	char *triple = LLVMGetDefaultTargetTriple();
 
 	struct cgctx ctx;
-	ctx.a = NULL;
+	ctx.a = &(arena_t){0};
 	ctx.s = &(scratch_t){0};
 	ctx.namespace.p = NULL;
 	ctx.ctx = LLVMContextCreate();
@@ -55,7 +55,7 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 
 	codegenast(ctx, folds, types, ast, aux, toks);
 
-	arena_free(&ctx.a);
+	arena_free(ctx.a);
 	tmpfree(ctx.s);
 
 	LLVMDisposeBuilder(ctx.bob);
