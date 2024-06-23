@@ -137,7 +137,8 @@ mkblk(size_t cap)
 	if (a == NULL)
 		err("malloc:");
 	a->cap = cap;
-	a->data = mmap(NULL, cap, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+	a->data = mmap(NULL, cap, PROT_READ | PROT_WRITE,
+	               MAP_PRIVATE | MAP_ANON, -1, 0);
 	if (a->data == MAP_FAILED)
 		err("mmap:");
 	a->free = a->data;

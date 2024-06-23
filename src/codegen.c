@@ -135,8 +135,8 @@ codegenstmt(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast,
 		}
 
 		LLVMValueRef v;
-		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, expr, types[i],
-		                     &v);
+		i = codegentypedexpr(ctx, folds, types, ast, aux,
+		                     toks, expr, types[i], &v);
 		(void)LLVMBuildRet(ctx.bob, v);
 		return i;
 	}
