@@ -8,6 +8,7 @@
 #include "alloc.h"
 #include "lexer.h"
 #include "parser.h"
+#include "symtab.h"
 #include "types.h"
 
 /* The different base types */
@@ -30,8 +31,6 @@ enum {
 
 static_assert(_TYPE_LAST_ENT - 1 <= UINT8_MAX,
               "Too many AST tokens to fix in uint8_t");
-
-typedef struct symtab symtab_t;
 
 typedef struct {
 	idx_t up, i;

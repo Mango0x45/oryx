@@ -14,6 +14,7 @@
 #include "errors.h"
 #include "parser.h"
 #include "strview.h"
+#include "symtab.h"
 #include "types.h"
 
 /* In debug builds we want to actually alloc a new mpq_t so that it’s
@@ -23,13 +24,6 @@
 #else
 #	define MPQCPY(x, y) (*(x) = *(y))
 #endif
-
-/* Mapping of symbol names to their indicies in the AST */
-typedef struct symtab {
-	struct symtab *child[4];
-	strview_t key;
-	idx_t val;
-} symtab_t;
 
 typedef struct {
 	scope_t *buf;
@@ -95,12 +89,6 @@ static const type_t *typegrab(ast_t, lexemes_t, idx_t)
 static bool typecompat(type_t, type_t);
 static bool returns(ast_t, idx_t);
 
-/* Index the symbol table M with the key SV, returning a pointer to the
-   value.  If no entry exists and A is non-null, a pointer to a newly
-   allocated (and zeroed) value is returned, NULL otherwise. */
-static idx_t *symtab_insert(symtab_t **m, strview_t sv, arena_t *a)
-	__attribute__((nonnull(1)));
-
 /* Defined in primitives.gperf */
 const type_t *typelookup(const uchar *, size_t)
 	__attribute__((nonnull));
@@ -152,12 +140,13 @@ find_unordered_syms(scopes_t *scps, ast_t ast, aux_t aux, lexemes_t toks,
 
 		if (isstatic || isconst) {
 			strview_t sv = toks.strs[ast.lexemes[i]];
-			idx_t *p = symtab_insert(&scp->map, sv, a);
-			if (*p != AST_EMPTY) {
+			symval_t *p = symtab_insert(&scp->map, sv, a);
+			if (p->exists) {
 				err("analyzer: Symbol ‘%.*s’ declared multiple times",
 				    SV_PRI_ARGS(sv));
 			}
-			*p = i;
+			p->i = i;
+			p->exists = true;
 		} else if (ast.kinds[i] == ASTBLK) {
 			pair_t p = ast.kids[i];
 			find_unordered_syms(scps, ast, aux, toks, beg, p.lhs, p.rhs, a);
@@ -193,12 +182,13 @@ analyzedecl(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 {
 	strview_t sv = toks.strs[ast.lexemes[i]];
 	if (ctx.si > 0 && ast.kinds[i] == ASTDECL) {
-		idx_t *ip = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
-		if (*ip == AST_EMPTY)
-			*ip = i;
-		else {
+		symval_t *sym = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
+		if (sym->exists) {
 			err("analyzer: Variable ‘%.*s’ declared multiple times",
 			    SV_PRI_ARGS(sv));
+		} else {
+			sym->i = i;
+			sym->exists = true;
 		}
 	}
 
@@ -281,24 +271,24 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 
 		for (idx_t lvl = ctx.si;;) {
 			scope_t scp = scps[lvl];
-			idx_t *ip = symtab_insert(&scp.map, sv, NULL);
+			symval_t *sym = symtab_insert(&scp.map, sv, NULL);
 
-			if (ip == NULL) {
+			if (sym == NULL) {
 				if (lvl == 0)
 					break;
 				lvl = scp.up;
 			} else {
-				switch (types[*ip].kind) {
+				switch (types[sym->i].kind) {
 				case TYPE_UNSET:
 					ctx.si = lvl;
-					analyzedecl(ctx, scps, types, ast, aux, toks, *ip);
+					analyzedecl(ctx, scps, types, ast, aux, toks, sym->i);
 					break;
 				case TYPE_CHECKING:
 					err("analyzer: Circular definition of ‘%.*s’",
 					    SV_PRI_ARGS(sv));
 				}
 
-				types[i] = types[*ip];
+				types[i] = types[sym->i];
 				return i + 1;
 			}
 		}
@@ -420,23 +410,23 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 
 		for (idx_t lvl = ctx.si;;) {
 			scope_t scp = scps[lvl];
-			idx_t *ip = symtab_insert(&scp.map, sv, NULL);
+			symval_t *sym = symtab_insert(&scp.map, sv, NULL);
 
-			if (ip == NULL) {
+			if (sym == NULL) {
 				assert(lvl != 0);
 				lvl = scp.up;
 			} else {
-				switch (ast.kinds[*ip]) {
+				switch (ast.kinds[sym->i]) {
 				case ASTDECL:
 					break;
 				case ASTCDECL: {
-					idx_t expr = ast.kids[*ip].rhs;
+					idx_t expr = ast.kids[sym->i].rhs;
 					assert(expr != AST_EMPTY);
 					MPQCPY(folds[i], folds[expr]);
 					if (MPQ_IS_INIT(folds[i])) {
 						ctx.si = lvl;
-						(void)constfolddecl(ctx, folds, scps, types, ast, toks,
-						                    *ip);
+						(void)constfolddecl(ctx, folds, scps, types,
+						                    ast, toks, sym->i);
 						MPQCPY(folds[i], folds[expr]);
 						assert(MPQ_IS_INIT(folds[i]));
 					}
@@ -512,20 +502,4 @@ typecompat(type_t lhs, type_t rhs)
 	   and sign and are either both integral or both floats */
 	return lhs.issigned == rhs.issigned && lhs.isfloat == rhs.isfloat
 	    && lhs.size == rhs.size;
-}
-
-idx_t *
-symtab_insert(symtab_t **m, strview_t k, arena_t *a)
-{
-	for (uint64_t h = strview_hash(k); *m; h <<= 2) {
-		if (strview_eq(k, (*m)->key))
-			return &(*m)->val;
-		m = &(*m)->child[h >> 62];
-	}
-	if (a == NULL)
-		return NULL;
-	*m = arena_new(a, symtab_t, 1);
-	(*m)->key = k;
-	(*m)->val = AST_EMPTY;
-	return &(*m)->val;
 }
