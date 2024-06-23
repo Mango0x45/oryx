@@ -21,6 +21,7 @@
    have easy access to everything */
 struct cgctx {
 	arena_t a;
+	scratch_t *s;
 	LLVMContextRef ctx;
 	LLVMModuleRef mod;
 	LLVMBuilderRef bob;
@@ -43,6 +44,7 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 
 	struct cgctx ctx;
 	ctx.a = NULL;
+	ctx.s = &(scratch_t){0};
 	ctx.namespace.p = NULL;
 	ctx.ctx = LLVMContextCreate();
 	ctx.mod = LLVMModuleCreateWithNameInContext("oryx", ctx.ctx);
@@ -54,6 +56,7 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 	codegenast(ctx, folds, types, ast, aux, toks);
 
 	arena_free(&ctx.a);
+	tmpfree(ctx.s);
 
 	LLVMDisposeBuilder(ctx.bob);
 
@@ -188,12 +191,9 @@ codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
 
 		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
-		/* TODO: Temporary allocator */
-		char *name = bufalloc(NULL, sv.len + 1, 1);
+		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
 		svtocstr(name, sv);
-		i = codegenfunc(ctx, folds, types, ast, aux, toks, p.rhs, name);
-		free(name);
-		return i;
+		return codegenfunc(ctx, folds, types, ast, aux, toks, p.rhs, name);
 	}
 
 	assert(ast.kinds[i] == ASTDECL);
@@ -201,11 +201,9 @@ codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
 	if (!types[i].isfloat && aux.buf[p.lhs].decl.isstatic) {
 		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
-		/* TODO: Temporary allocator */
-		char *name = bufalloc(NULL, sv.len + 1, 1);
+		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
 		LLVMTypeRef t = type2llvm(ctx, types[i]);
 		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, svtocstr(name, sv));
-		free(name);
 
 		LLVMValueRef v;
 		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, p.rhs, types[i], &v);
@@ -216,12 +214,10 @@ codegendecl(struct cgctx ctx, mpq_t *folds, type_t *types, ast_t ast, aux_t aux,
 	if (!types[i].isfloat /* && !aux.buf[p.lhs].decl.isstatic */) {
 		strview_t sv = toks.strs[ast.lexemes[i]];
 		/* TODO: Namespace the name */
-		/* TODO: Temporary allocator */
-		char *name = bufalloc(NULL, sv.len + 1, 1);
+		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
 		LLVMTypeRef t = type2llvm(ctx, types[i]);
 		LLVMValueRef var, val;
 		var = LLVMBuildAlloca(ctx.bob, t, svtocstr(name, sv));
-		free(name);
 		i = codegentypedexpr(ctx, folds, types, ast, aux, toks, p.rhs, types[i], &val);
 		LLVMBuildStore(ctx.bob, val, var);
 		return i;

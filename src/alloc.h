@@ -7,11 +7,25 @@
 #include "common.h"
 
 typedef struct _arena *arena_t;
+typedef struct {
+	void *p;
+	size_t sz;
+} scratch_t;
 
 /* Allocate a buffer of NMEMB elements of size SIZE.  If PTR is non-null then
    reallocate the buffer it points to.  Aborts on out-of-memory or overflow. */
 void *bufalloc(void *ptr, size_t nmemb, size_t size)
 	__attribute__((returns_nonnull, warn_unused_result, alloc_size(2, 3)));
+
+/* Alloc a buffer of NMEMB elements of size SIZE for one time use.  Each
+   time this function is invoked previous allocations are overwritten. */
+void *tmpalloc(scratch_t *s, size_t nmemb, size_t size)
+	__attribute__((returns_nonnull, warn_unused_result, nonnull,
+                   alloc_size(2, 3)));
+
+/* Reallocate all memory associated with S */
+void tmpfree(scratch_t *s)
+	__attribute__((nonnull));
 
 /* Allocate a buffer of NMEMB elements of size SIZE with alignment ALIGN using
    the arena-allocator A. */
