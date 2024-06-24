@@ -50,8 +50,7 @@ fwdnode(ast_t ast, idx_t i)
 			i = ast.kids[i].lhs == AST_EMPTY ? i + 1 : ast.kids[i].rhs;
 			break;
 		case ASTDECL:
-			i = ast.kids[i].rhs == AST_EMPTY ? ast.kids[i].lhs
-			                                 : ast.kids[i].rhs;
+			i = ast.kids[i].rhs == AST_EMPTY ? i + 1 : ast.kids[i].rhs;
 			break;
 		case ASTRET:
 			if (ast.kids[i].rhs == AST_EMPTY)

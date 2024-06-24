@@ -248,7 +248,11 @@ codegendecl(struct cgctx ctx, idx_t i)
 		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, svtocstr(name, sv));
 
 		LLVMValueRef v;
-		i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &v);
+		if (p.rhs == AST_EMPTY) {
+			v = LLVMConstNull(t);
+			i = fwdnode(ctx.ast, i);
+		} else
+			i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &v);
 		LLVMSetInitializer(globl, v);
 		LLVMSetLinkage(globl, LLVMInternalLinkage);
 		return i;
@@ -258,7 +262,11 @@ codegendecl(struct cgctx ctx, idx_t i)
 		/* TODO: Namespace the name */
 		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		var = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
-		i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &val);
+		if (p.rhs == AST_EMPTY) {
+			val = LLVMConstNull(type2llvm(ctx, ctx.types[i]));
+			i = fwdnode(ctx.ast, i);
+		} else
+			i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &val);
 		LLVMBuildStore(ctx.bob, val, var);
 		return i;
 	}
