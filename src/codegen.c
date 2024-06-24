@@ -121,7 +121,7 @@ idx_t
 codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 {
 	/* If true, implies numeric constant */
-	if (MPQ_IS_INIT(ctx.folds[i])) {
+	if (MPQ_IS_INIT(ctx.folds[i]) && !type.isfloat) {
 		mpz_ptr num, den;
 		num = mpq_numref(ctx.folds[i]);
 		den = mpq_denref(ctx.folds[i]);
@@ -153,6 +153,16 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		char buf[40];
 		mpz_get_str(buf, 10, num);
 		*outv = LLVMConstIntOfString(type2llvm(ctx, type), buf, 10);
+		return fwdnode(ctx.ast, i);
+	} else if (MPQ_IS_INIT(ctx.folds[i]) /* && type.isfloat */) {
+		/* FIXME: This is bad and broken */
+		mpf_t x;
+		mpf_init(x);
+		mpf_set_q(x, ctx.folds[i]);
+		char buf[256];
+		gmp_snprintf(buf, sizeof(buf), "%Ff", x);
+		*outv = LLVMConstRealOfString(type2llvm(ctx, type), buf);
+		mpf_clear(x);
 		return fwdnode(ctx.ast, i);
 	}
 
@@ -298,7 +308,7 @@ codegendecl(struct cgctx ctx, idx_t i)
 	if (ctx.aux.buf[p.lhs].decl.isundef)
 		return fwdnode(ctx.ast, i);
 
-	if (!ctx.types[i].isfloat && ctx.aux.buf[p.lhs].decl.isstatic) {
+	if (ctx.aux.buf[p.lhs].decl.isstatic) {
 		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
@@ -315,22 +325,20 @@ codegendecl(struct cgctx ctx, idx_t i)
 		LLVMSetLinkage(globl, LLVMInternalLinkage);
 		return i;
 	}
-	if (!ctx.types[i].isfloat /* && !aux.buf[p.lhs].decl.isstatic */) {
-		LLVMValueRef var, val;
-		/* TODO: Namespace the name */
-		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
-		var = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
-		if (p.rhs == AST_EMPTY) {
-			val = LLVMConstNull(type2llvm(ctx, ctx.types[i]));
-			i = fwdnode(ctx.ast, i);
-		} else
-			i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &val);
-		LLVMBuildStore(ctx.bob, val, var);
-		return i;
-	}
 
-	/* types[i].isfloat */
-	err("%s():%d: TODO", __func__, __LINE__);
+	/* Non-static, non-undef, mutable */
+
+	LLVMValueRef var, val;
+	/* TODO: Namespace the name */
+	strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+	var = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
+	if (p.rhs == AST_EMPTY) {
+		val = LLVMConstNull(type2llvm(ctx, ctx.types[i]));
+		i = fwdnode(ctx.ast, i);
+	} else
+		i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &val);
+	LLVMBuildStore(ctx.bob, val, var);
+	return i;
 }
 
 void

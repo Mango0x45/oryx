@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -37,7 +38,7 @@ static bool skip_comment(const uchar **ptr, const uchar *end)
 static const bool is_numeric_lookup[UCHAR_MAX + 1] = {
 	['0'] = true, ['1'] = true, ['2'] = true,  ['3'] = true,
 	['4'] = true, ['5'] = true, ['6'] = true,  ['7'] = true,
-	['8'] = true, ['9'] = true, ['\''] = true,
+	['8'] = true, ['9'] = true, ['\''] = true, ['.'] = true,
 };
 
 lexemes_t
@@ -105,18 +106,28 @@ lexstring(const uchar *code, size_t codesz)
 			break;
 
 		case '.':
-			if (unlikely(end - code < 2) || code[0] != '.' || code[1] != '.')
+			if (unlikely(end - code < 2) || code[0] != '.' || code[1] != '.') {
+				if (likely(end - code) >= 1 && isdigit(code[0]))
+					goto number;
 				goto fallback;
+			}
 			code += 2;
 			data.kinds[data.len++] = LEXELIP;
 			break;
 
 		case '0': case '1': case '2': case '3': case '4':
-		case '5': case '6': case '7': case '8': case '9':
+		case '5': case '6': case '7': case '8': case '9': {
+number:
+			bool saw_dot = false;
 			data.kinds[data.len] = LEXNUM;
 			data.strs[data.len].p = spnbeg;
 
 			while (likely(code < end) && is_numeric_lookup[code[0]]) {
+				if (unlikely(code[0] == '.')) {
+					if (saw_dot)
+						err("lexer: Decimal separator given multiple times in numeric literal");
+					saw_dot = true;
+				}
 				if (unlikely(code[0] == '\'' && code[-1] == '\'')) {
 					err("Adjacent numeric separators at byte %td",
 					    code - start);
@@ -130,10 +141,11 @@ lexstring(const uchar *code, size_t codesz)
 
 			data.strs[data.len++].len = code - spnbeg;
 			break;
+		}
 
 		default:
 fallback:
-			if (!rune_is_xids(ch))
+			if (unlikely(!rune_is_xids(ch)))
 				err("lexer: Unexpected rune U+%04" PRIXRUNE, ch);
 
 			data.kinds[data.len] = LEXIDENT;

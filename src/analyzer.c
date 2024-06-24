@@ -51,6 +51,7 @@ struct azctx {
 
 struct cfctx {
 	arena_t *a;
+	scratch_t *s;
 	strview_t decl;
 	idx_t si;
 };
@@ -60,7 +61,8 @@ static void analyzeast(scope_t *, type_t *, ast_t, aux_t, lexemes_t, arena_t *)
 	__attribute__((nonnull));
 
 /* Perform constant folding over the AST */
-static void constfold(mpq_t *, scope_t *, type_t *, ast_t, lexemes_t, arena_t *)
+static void constfold(mpq_t *, scope_t *, type_t *, ast_t, lexemes_t, arena_t *,
+                      scratch_t *)
 	__attribute__((nonnull));
 
 /* Perform a pass over the entire AST and return an array of symbol
@@ -103,9 +105,10 @@ analyzeprog(ast_t ast, aux_t aux, lexemes_t toks, arena_t *a, type_t **types,
 	*scps = gensymtabs(ast, aux, toks, a);
 	analyzeast(*scps, *types, ast, aux, toks, a);
 
+	scratch_t s = {0};
 	*folds = bufalloc(NULL, ast.len, sizeof(**folds));
 	memset(*folds, 0, ast.len * sizeof(**folds));
-	constfold(*folds, *scps, *types, ast, toks, a);
+	constfold(*folds, *scps, *types, ast, toks, a, &s);
 }
 
 scope_t *
@@ -383,21 +386,35 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 	case ASTNUMLIT: {
 		mpq_init(folds[i]);
 
-		/* TODO: Temporary allocator */
 		strview_t sv = toks.strs[ast.lexemes[i]];
-		char *buf = bufalloc(NULL, sv.len + 1, 1);
+		char *buf = tmpalloc(ctx.s, sv.len + 1, 1);
 		size_t len = 0;
 
+		bool isfloat = false;
+
 		for (size_t i = 0; i < sv.len; i++) {
+			if (sv.p[i] == '.') {
+				isfloat = true;
+				buf[len++] = sv.p[i];
+			}
 			if (isdigit(sv.p[i]))
 				buf[len++] = sv.p[i];
 		}
 		buf[len] = 0;
 
-		int ret = mpq_set_str(folds[i], buf, 10);
-		assert(ret == 0);
-
-		free(buf);
+		if (isfloat) {
+			mpf_t x;
+			/* FIXME: This uses global precision, not thread safe! */
+			/* FIXME: This doesn’t try to figure out what the correct
+			   precision is. */
+			int ret = mpf_init_set_str(x, buf, 10);
+			assert(ret == 0);
+			mpq_set_f(folds[i], x);
+			mpf_clear(x);
+		} else {
+			int ret = mpq_set_str(folds[i], buf, 10);
+			assert(ret == 0);
+		}
 		return fwdnode(ast, i);
 	}
 	case ASTIDENT: {
@@ -459,9 +476,9 @@ constfolddecl(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 
 void
 constfold(mpq_t *folds, scope_t *scps, type_t *types, ast_t ast, lexemes_t toks,
-          arena_t *a)
+          arena_t *a, scratch_t *s)
 {
-	struct cfctx ctx = {.a = a};
+	struct cfctx ctx = {.a = a, .s = s};
 	for (idx_t i = 0; likely(i < ast.len);) {
 		assert(ast.kinds[i] <= _AST_DECLS_END);
 		i = constfolddecl(ctx, folds, scps, types, ast, toks, i);

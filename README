@@ -55,10 +55,17 @@ The build script also accepts some subcommands.  They are as follows:
                          ──────────────────────────────
 
 1.  The following datatypes are supported.  The unsized integer types
-    default to the systems word size (typically 64 bits).
+    default to the systems word size (typically 64 bits).  The rune type
+    is an alias for the i32 type and serves a purely semantic purpose.
+    In the future it will be a distinct type.
 
+        /* Integer types */
         i8, i16, i32, i64, i128,  int
         u8, u16, u32, u64, u128, uint
+        rune
+
+        /* Floating-point types */
+        f16, f32, f64, f128
 
 2.  C-style block comments.  Line comments are intentionally not
     included.
