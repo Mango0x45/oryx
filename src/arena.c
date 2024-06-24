@@ -91,12 +91,32 @@ _arena_grow(arena_t *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
 		   more trailing free space in the region to avoid a memcpy(). */
 		size_t oldsz = old_nmemb * size;
 		if ((char *)ptr == (char *)p->free - oldsz) {
-			size_t rest = p->cap - ((char *)p->free - (char *)p->data);
+			size_t rem = p->cap - ((char *)p->free - (char *)p->data);
 			size_t need = (new_nmemb - old_nmemb) * size;
-			if (need <= rest) {
+			if (need <= rem) {
 				p->free = (char *)p->free + need;
 				return ptr;
 			}
+
+			/* NOTE: After benchmarking, (albiet rather naïvely) it seems
+			   that the closer to the original mapping size we are, the
+			   faster mremap() runs.  With really large mappings it
+			   converges with mmap() + memcpy() on performance though, so
+			   it seems this is always the better solution on systems
+			   with mremap() since it’s also a bit more memory efficient.
+
+			   We can’t pass MREMAP_MAYMOVE though, because it would
+			   invalidate existing pointers to data in the mapping. */
+#if __linux__
+			size_t ncap = p->cap + need - rem;
+			void *nptr = mremap(p->data, p->cap, ncap, 0);
+			if (nptr != MAP_FAILED) {
+				p->cap = ncap;
+				return ptr;
+			}
+			if (errno != ENOMEM)
+				err("%s:", __func__);
+#endif
 		}
 
 		void *dst = arena_alloc(a, new_nmemb, size, align);
