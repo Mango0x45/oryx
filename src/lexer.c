@@ -63,6 +63,16 @@ lexstring(const uchar *code, size_t codesz)
 		rune ch = utf8_decode(&code);
 
 		switch (ch) {
+		/* Whitespace */
+		case '\t': case '\n': case '\v':
+		case '\f': case '\r': case ' ':
+		case RUNE_C(0x0085): /* NEXT LINE */
+		case RUNE_C(0x200E): /* LEFT-TO-RIGHT MARK */
+		case RUNE_C(0x200F): /* RIGHT-TO-LEFT MARK */
+		case RUNE_C(0x2028): /* LINE SEPARATOR */
+		case RUNE_C(0x2029): /* PARAGRAPH SEPARATOR */
+			break;
+
 		/* Single-byte literals */
 		case '&': case '(': case ')': case '*': case '+':
 		case '-': case ':': case ';': case '=': case '[':
@@ -70,7 +80,7 @@ lexstring(const uchar *code, size_t codesz)
 			data.kinds[data.len++] = ch;
 			break;
 
-		case RUNE_C(0x2026): /* U+2026 HORIZONTAL ELLIPSIS */
+		case RUNE_C(0x2026): /* HORIZONTAL ELLIPSIS */
 			data.kinds[data.len++] = LEXELIP;
 			break;
 

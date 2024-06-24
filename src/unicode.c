@@ -10,7 +10,6 @@
 		return stg2[stg1[ch / blksz]][x / 8] & (1 << (x % 8));                 \
 	}
 
-RUNE_IS_GEN(rune_is_pat_ws, pat_ws_stage1, pat_ws_stage2, 512)
 RUNE_IS_GEN(rune_is_xids, xids_stage1, xids_stage2, 128)
 RUNE_IS_GEN(rune_is_xidc, xidc_stage1, xidc_stage2, 128)
 
