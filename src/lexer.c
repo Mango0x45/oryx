@@ -70,6 +70,10 @@ lexstring(const uchar *code, size_t codesz)
 			data.kinds[data.len++] = ch;
 			break;
 
+		case RUNE_C(0x2026): /* U+2026 HORIZONTAL ELLIPSIS */
+			data.kinds[data.len++] = LEXELIP;
+			break;
+
 		/* Single- or double-byte literals */
 		case '/':
 			if (code < end && code[0] == '*') {
@@ -80,7 +84,6 @@ lexstring(const uchar *code, size_t codesz)
 
 			data.kinds[data.len++] = ch;
 			break;
-
 		case '<': case '>':
 			data.kinds[data.len++] = ch;
 
@@ -89,6 +92,13 @@ lexstring(const uchar *code, size_t codesz)
 				code++;
 				data.kinds[data.len - 1] += 193;
 			}
+			break;
+
+		case '.':
+			if (unlikely(end - code < 2) || code[0] != '.' || code[1] != '.')
+				goto fallback;
+			code += 2;
+			data.kinds[data.len++] = LEXELIP;
 			break;
 
 		case '0': case '1': case '2': case '3': case '4':
@@ -112,6 +122,7 @@ lexstring(const uchar *code, size_t codesz)
 			break;
 
 		default:
+fallback:
 			if (!rune_is_xids(ch))
 				continue;
 

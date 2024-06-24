@@ -128,6 +128,7 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 	}
 
 	aux->buf[j].decl.isstatic = toplvl;
+	aux->buf[j].decl.isundef  = false;
 	if (toplvl && toks.kinds[toksidx] == LEXIDENT
 	    && strview_eq(SV("pub"), toks.strs[toksidx]))
 	{
@@ -165,11 +166,27 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 		err("parser: Expected colon, equals, or semicolon");
 	}
 
-	bool func = toks.kinds[toksidx] == LEXLPAR;
-	if (func && ast->kinds[i] == ASTDECL)
-		err("Cannot assign function to mutable variable");
+	idx_t rhs;
+	bool func = false;
 
-	idx_t rhs = (func ? parsefunc : parseexpr)(ast, aux, toks);
+	switch (toks.kinds[toksidx]) {
+	case LEXLPAR:
+		func = true;
+		if (ast->kinds[i] == ASTDECL)
+			err("Cannot assign function to mutable variable");
+		rhs = parsefunc(ast, aux, toks);
+		break;
+	case LEXELIP:
+		toksidx++;
+		if (ast->kinds[i] == ASTCDECL)
+			err("parser: Cannot assign to ‘…’ in constant declaration");
+		rhs = AST_EMPTY;
+		aux->buf[j].decl.isundef = true;
+		break;
+	default:
+		rhs = parseexpr(ast, aux, toks);
+	}
+
 	ast->kids[i].rhs = rhs;
 	if (!func && toks.kinds[toksidx++] != LEXSEMI)
 		err("parser: Expected semicolon");

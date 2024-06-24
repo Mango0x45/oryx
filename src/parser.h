@@ -71,8 +71,9 @@ typedef struct {
 	union {
 		struct {
 			idx_t type;
-			bool ispub;
-			bool isstatic;
+			bool ispub    : 1;
+			bool isstatic : 1;
+			bool isundef  : 1;
 		} decl;
 	} *buf;
 	size_t len, cap;

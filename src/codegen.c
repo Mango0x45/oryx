@@ -240,6 +240,10 @@ codegendecl(struct cgctx ctx, idx_t i)
 
 	assert(ctx.ast.kinds[i] == ASTDECL);
 
+	/* Don’t assign a default value to ‘x: int = …’ */
+	if (ctx.aux.buf[p.lhs].decl.isundef)
+		return fwdnode(ctx.ast, i);
+
 	if (!ctx.types[i].isfloat && ctx.aux.buf[p.lhs].decl.isstatic) {
 		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		/* TODO: Namespace the name */

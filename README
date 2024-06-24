@@ -1,1 +1,57 @@
-Oryx — Programming Made Better
+                         Oryx — Programming Made Better
+
+                         ┌────────────────────────────┐
+                         │ Existing Language Features │
+                         └────────────────────────────┘
+
+1.  The following datatypes are supported.  The unsigned integer types
+    default to the systems word size (typically 64 bits).
+
+        i8, i16, i32, i64, i128,  int
+        u8, u16, u32, u64, u128, uint
+
+2.  C-style block comments.  Line comments are intentionally not
+    included.
+
+3.  Declaration of mutable variables with optional type-inference.  The
+    syntax is simple and consistent regardless of if type-inference is
+    used or not.  Variables are also zero-initialized unless ‘…’
+    (U+2026 HORIZONTAL ELLIPSIS) or ‘...’ is given as a value.
+
+        x: int;       /* Declare a zero-initialized integer */
+        x: int = 69;  /* Declare an integer and set it to 69 */
+        x:     = 69;  /* Same as above but infer the type */
+        x := 69;      /* Recommended style when inferring types */
+        x: int = …;   /* Declare an uninitialized integer (preferred) */
+        x: int = ...; /* Same as above when Unicode is not possible */
+
+4.  Declaration of constant variables with optional type-inference
+    including constants of arbitrary precision.  The syntax is
+    intentionally designed to be consistent with mutable variable
+    declaration.
+
+    Constants are unordered, meaning that a constant may refer to another
+    constant that is declared later in the source file.
+
+        FOO: u8 : BAR
+        BAR: u8 : 69;
+
+        REALLY_BIG :: 123'456'789'876'543'210;
+
+        pub MyFunc :: () int {
+            return BAR;
+        }
+
+5.  Constants of arbitrary precision (overflow is not possible), with ‘'’
+    (U+0027 APOSTROPHE) as an optional digit seperator.
+
+        REALLY_BIG :: 123'456'789'876'543'210;
+
+6.  No implicit type conversions between types.  This includes between
+    different integer types which may have the same size (i.e. int and
+    int64)
+
+        pub MyFunc :: () {
+            x: int = 69;
+            y: i64 = x;  /* Compile-time error */
+        }

@@ -13,6 +13,10 @@ enum {
 	LEXEOF,   /* End of token stream */
 	LEXIDENT, /* Identifier */
 	LEXNUM,   /* Numeric constant */
+	LEXELIP,  /* Ellipsis */
+
+	/* NOTE: Make sure that the enumerations above this comment don’t
+	   conflict with the following explicitly assigned enumerations! */
 
 	LEXAMP    = '&',
 	LEXCOLON  = ':',
