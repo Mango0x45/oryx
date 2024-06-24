@@ -1,4 +1,6 @@
+                       ──────────────────────────────────
                          Oryx — Programming Made Better
+                       ──────────────────────────────────
 
 Oryx is named after the oryx animal.  This means that when referring to
 Oryx the programming language in languages other than English you should
@@ -6,9 +8,9 @@ use the given language’s translation of the animal’s name (e.g. ‘Órix’�
 Portuguese or ‘Όρυξ’ in Greek) as opposed to using the English name.
 
 
-                         ┌────────────────────────────┐
-                         │ Existing Language Features │
-                         └────────────────────────────┘
+                         ──────────────────────────────
+                           Existing Language Features
+                         ──────────────────────────────
 
 1.  The following datatypes are supported.  The unsized integer types
     default to the systems word size (typically 64 bits).
