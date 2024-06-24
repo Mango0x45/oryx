@@ -4,7 +4,7 @@
                          │ Existing Language Features │
                          └────────────────────────────┘
 
-1.  The following datatypes are supported.  The unsigned integer types
+1.  The following datatypes are supported.  The unsized integer types
     default to the systems word size (typically 64 bits).
 
         i8, i16, i32, i64, i128,  int
