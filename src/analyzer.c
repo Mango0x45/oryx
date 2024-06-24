@@ -418,12 +418,18 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 			mpf_t x;
 			double prec = ceil((sv.len - 1) * LOG2_10);
 			mpf_init2(x, MIN(MP_BITCNT_MAX, (mp_bitcnt_t)prec));
-			int ret = mpf_set_str(x, buf, 10);
+#if DEBUG
+			int ret =
+#endif
+				mpf_set_str(x, buf, 10);
 			assert(ret == 0);
 			mpq_set_f(folds[i], x);
 			mpf_clear(x);
 		} else {
-			int ret = mpq_set_str(folds[i], buf, 10);
+#if DEBUG
+			int ret =
+#endif
+				mpq_set_str(folds[i], buf, 10);
 			assert(ret == 0);
 		}
 		return fwdnode(ast, i);
