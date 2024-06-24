@@ -124,7 +124,7 @@ lexstring(const uchar *code, size_t codesz)
 		default:
 fallback:
 			if (!rune_is_xids(ch))
-				continue;
+				err("lexer: Unexpected rune U+%04" PRIXRUNE, ch);
 
 			data.kinds[data.len] = LEXIDENT;
 			data.strs[data.len].p = spnbeg;
