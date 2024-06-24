@@ -32,7 +32,7 @@ static void lexemesresz(lexemes_t *toks)
 /* Advance PTR (which points to the start of a comment) to the end of the
    comment, or END.  Returns true if the comment was well-formed and
    false if the comment was unterminated.  Handles nested comments. */
-static bool skip_comment(const uchar **ptr, const uchar *end)
+bool skpcmnt(const uchar **ptr, const uchar *end)
 	__attribute__((nonnull));
 
 static const bool is_numeric_lookup[UCHAR_MAX + 1] = {
@@ -88,7 +88,7 @@ lexstring(const uchar *code, size_t codesz)
 		/* Single- or double-byte literals */
 		case '/':
 			if (code < end && code[0] == '*') {
-				if (!skip_comment(&code, end))
+				if (!skpcmnt(&code, end))
 					err("Unterminated comment at byte %td", code - start);
 				continue;
 			}
@@ -170,32 +170,6 @@ fallback:
 		lexemesresz(&data);
 	data.kinds[data.len++] = LEXEOF;
 	return data;
-}
-
-bool
-skip_comment(const uchar **ptr, const uchar *end)
-{
-	int nst = 1;
-	const uchar *p = *ptr;
-
-	for (p++; likely(p < end); p++) {
-		if (p + 1 < end) {
-			if (p[0] == '*' && p[1] == '/') {
-				p++;
-				if (--nst == 0)
-					goto out;
-			} else if (p[0] == '/' && p[1] == '*') {
-				p++;
-				nst++;
-			}
-		}
-	}
-
-	return false;
-
-out:
-	*ptr = ++p;
-	return true;
 }
 
 lexemes_t

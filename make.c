@@ -366,33 +366,78 @@ mkgmp(int nprocs)
 bool
 tagvalid(const char *file)
 {
-	if (strstr(file, "-avx2.") != NULL && (simd_flags & SIMD_AVX2) == 0)
-		return false;
-	if (strstr(file, "-neon.") != NULL && (simd_flags & SIMD_NEON) == 0)
-		return false;
-	if (strstr(file, "-sse4_1.") != NULL && (simd_flags & SIMD_SSE4_1) == 0)
-		return false;
-	return true;
+	/* No tag */
+	if (strchr(file, '-') == NULL)
+		return true;
+
+	char *want_and_have = NULL;
+	static struct pair {
+		char *tag;
+		int flag;
+	} tags[] = {
+		{"avx2",    SIMD_AVX2  },
+		{"sse4_1",  SIMD_SSE4_1},
+		{"neon",    SIMD_NEON  },
+		{"generic", 0          },
+	};
+
+	size_t len = strlen(file);
+	char *buf = malloc(len + sizeof("generic"));
+	assert(buf != NULL);
+	for (size_t i = 0; i < lengthof(tags); i++) {
+		char *sep = strrchr(file, '-');
+		char *ext = strrchr(file, '.');
+		assert(sep != NULL);
+		assert(ext != NULL);
+		sprintf(buf, "%.*s-%s%s", (int)(sep - file), file, tags[i].tag, ext);
+
+		if (fexists(buf)
+		    && ((simd_flags & tags[i].flag) != 0 || tags[i].flag == 0))
+		{
+			want_and_have = buf;
+			break;
+		}
+	}
+
+	bool ret;
+	if (want_and_have == NULL)
+		ret = false;
+	else
+		ret = strcmp(want_and_have, file) == 0;
+
+	free(buf);
+	return ret;
 }
 
 void
 chk_cpu_flags(void)
 {
+	uint32_t exx;
+	(void)exx; /* Might be unused */
+
 	if (!rflag)
 		return;
-#if __GNUC__ && __x86_64__
-	uint32_t exx;
 
+	/* Test for AVX512 */
+#if __AVX512F__
+	simd_flags |= SIMD_AVX2;
+#elif __GNUC__ && __x86_64__
 	asm volatile("cpuid" : "=b"(exx) : "a"(7), "c"(0));
-	if (exx & (1 << 5)) {
+	if (exx & (1 << 5))
 		simd_flags |= SIMD_AVX2;
-		return;
-	}
+#endif
 
+	/* Test for SSE4.1 */
+#if __SSE4_1__
+	simd_flags |= SIMD_SSE4_1;
+#elif __GNUC__ && __x86_64__
 	asm volatile("cpuid" : "=c"(exx) : "a"(1), "c"(0));
 	if (exx & (1 << 19))
 		simd_flags |= SIMD_SSE4_1;
-#elif __ARM_NEON
+#endif
+
+	/* Test for NEON */
+#if __ARM_NEON
 	simd_flags |= SIMD_NEON;
 #endif
 }
