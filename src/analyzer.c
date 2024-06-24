@@ -260,7 +260,7 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		types[i].kind = TYPE_NUM;
 		types[i].size = 0;
 		types[i].issigned = true;
-		return i + 1;
+		return fwdnode(ast, i);
 	case ASTIDENT: {
 		strview_t sv = toks.strs[ast.lexemes[i]];
 
@@ -288,7 +288,7 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 				}
 
 				types[i] = types[sym->i];
-				return i + 1;
+				return fwdnode(ast, i);
 			}
 		}
 
