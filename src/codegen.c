@@ -35,6 +35,7 @@ struct cgctx {
 	LLVMBuilderRef bob;
 	LLVMValueRef   func;
 
+	idx_t scpi;
 	strview_t namespace;
 };
 
@@ -126,7 +127,12 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 	}
 
 	assert(ctx.ast.kinds[i] == ASTIDENT);
-	err("%s():%d: not implemented", __func__, __LINE__);
+
+	strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+	LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
+	LLVMValueRef ptrval = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
+	*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "loadtmp");
+	return fwdnode(ctx.ast, i);
 }
 
 idx_t
@@ -157,8 +163,35 @@ idx_t
 codegenblk(struct cgctx ctx, idx_t i)
 {
 	pair_t p = ctx.ast.kids[i];
+	while (ctx.scps[ctx.scpi].i != p.lhs)
+		ctx.scpi++;
 	for (i = p.lhs; i <= p.rhs; i = codegenstmt(ctx, i))
 		;
+	return i;
+}
+
+idx_t
+codegenalloca(struct cgctx ctx, idx_t i)
+{
+	pair_t p = ctx.ast.kids[i];
+	while (ctx.scps[ctx.scpi].i != p.lhs)
+		ctx.scpi++;
+	for (i = p.lhs; i <= p.rhs;) {
+		switch (ctx.ast.kinds[i]) {
+		case ASTBLK:
+			i = codegenalloca(ctx, i);
+			break;
+		case ASTDECL: {
+			strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+			uchar *name = tmpalloc(ctx.s, sv.len + 1, 1);
+			LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
+			symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v =
+				LLVMBuildAlloca(ctx.bob, t, svtocstr(name, sv));
+		} /* fallthrough */
+		default:
+			i = fwdnode(ctx.ast, i);
+		}
+	}
 	return i;
 }
 
@@ -171,13 +204,19 @@ codegenfunc(struct cgctx ctx, idx_t i, const char *name)
 
 	LLVMTypeRef ft = LLVMFunctionType(ret, NULL, 0, false);
 	ctx.func = LLVMAddFunction(ctx.mod, name, ft);
-	LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx.ctx, ctx.func,
-	                                                        "entry");
+	LLVMBasicBlockRef entry =
+		LLVMAppendBasicBlockInContext(ctx.ctx, ctx.func, "entry");
 	LLVMPositionBuilderAtEnd(ctx.bob, entry);
 
-	pair_t p = ctx.ast.kids[i];
-	i = codegenblk(ctx, p.rhs);
-	if (ctx.ast.kids[p.lhs].rhs == AST_EMPTY)
+	idx_t proto = ctx.ast.kids[i].lhs;
+	idx_t blk   = ctx.ast.kids[i].rhs;
+
+	snapshot_t snap = arena_snapshot_create(*ctx.a);
+	(void)codegenalloca(ctx, blk);
+	arena_snapshot_restore(ctx.a, snap);
+
+	i = codegenblk(ctx, blk);
+	if (ctx.ast.kids[proto].rhs == AST_EMPTY)
 		LLVMBuildRetVoid(ctx.bob);
 	return i;
 }
@@ -193,11 +232,10 @@ codegendecl(struct cgctx ctx, idx_t i)
 		if (ctx.ast.kinds[p.rhs] != ASTFN)
 			return fwdnode(ctx.ast, i);
 
-		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		/* TODO: Namespace the name */
+		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
-		svtocstr(name, sv);
-		return codegenfunc(ctx, p.rhs, name);
+		return codegenfunc(ctx, p.rhs, svtocstr(name, sv));
 	}
 
 	assert(ctx.ast.kinds[i] == ASTDECL);
@@ -216,12 +254,10 @@ codegendecl(struct cgctx ctx, idx_t i)
 		return i;
 	}
 	if (!ctx.types[i].isfloat /* && !aux.buf[p.lhs].decl.isstatic */) {
-		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
-		/* TODO: Namespace the name */
-		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
-		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
 		LLVMValueRef var, val;
-		var = LLVMBuildAlloca(ctx.bob, t, svtocstr(name, sv));
+		/* TODO: Namespace the name */
+		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+		var = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
 		i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &val);
 		LLVMBuildStore(ctx.bob, val, var);
 		return i;

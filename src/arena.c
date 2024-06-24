@@ -29,7 +29,7 @@ struct _arena {
 	/* DATA points to the start of the block’s memory while FREE points
 	   to the beginning of the unused data in the block */
 	void *data, *free;
-	size_t len, cap;
+	size_t cap;
 	struct _arena *next;
 };
 
@@ -56,23 +56,22 @@ arena_alloc(struct _arena **a, size_t nmemb, size_t size, size_t align)
 	size *= nmemb;
 
 	for (struct _arena *p = *a; p != NULL; p = p->next) {
-		size_t nlen, off;
-		off = pad(p->len, align);
-		nlen = size + off;
+		size_t padding = pad((char *)p->free - (char *)p->data, align);
+		size_t freespc = p->cap - ((char *)p->free - (char *)p->data);
+		size_t nsize   = size + padding;
 
-		if (nlen <= p->cap) {
-			void *ret = (char *)p->data + off;
-			p->len = nlen;
-			p->free = ret;
+		if (nsize <= freespc) {
+			void *ret = p->free;
+			p->free = (char *)p->free + nsize;
 			return ret;
 		}
 	}
 
 	/* No page exists with enough space */
 	struct _arena *p = mkblk(MAX(size, ARENA_DFLT_CAP));
-	p->len = size;
 	p->next = *a;
 	*a = p;
+	p->free = (char *)p->data + size;
 	return p->data;
 }
 
@@ -82,13 +81,12 @@ _arena_grow(arena_t *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
 {
 	assert(IS_POW_2(align));
 	assert(new_nmemb * size != 0);
+	assert(old_nmemb < new_nmemb);
 
 	if (unlikely(size > SIZE_MAX / new_nmemb)) {
 		errno = ENOMEM;
 		err("%s:", __func__);
 	}
-
-	size *= new_nmemb;
 
 	for (struct _arena *p = *a; p != NULL; p = p->next) {
 		if (ptr < p->data || ptr > p->free)
@@ -97,11 +95,12 @@ _arena_grow(arena_t *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
 		/* If we need to grow the given allocation, but it was the last
 		   allocation made in a region, then we first see if we can just eat
 		   more trailing free space in the region to avoid a memcpy(). */
-		if (ptr == p->free) {
-			size_t rest = p->cap - p->len;
+		size_t oldsz = old_nmemb * size;
+		if ((char *)ptr == (char *)p->free - oldsz) {
+			size_t rest = p->cap - ((char *)p->free - (char *)p->data);
 			size_t need = (new_nmemb - old_nmemb) * size;
 			if (need <= rest) {
-				p->len += need;
+				p->free = (char *)p->free + need;
 				return ptr;
 			}
 		}
@@ -130,6 +129,34 @@ arena_free(struct _arena **a)
 	*a = NULL;
 }
 
+snapshot_t
+arena_snapshot_create(struct _arena *a)
+{
+	return a == NULL ? NULL : a->free;
+}
+
+void
+arena_snapshot_restore(struct _arena **a, snapshot_t snp)
+{
+	if (snp == NULL) {
+		arena_free(a);
+		return;
+	}
+
+	struct _arena *cur, *next;
+	for (cur = *a; cur != NULL; cur = next) {
+		next = cur->next;
+		if (snp < cur->data || snp > cur->free) {
+			munmap(cur->data, cur->cap);
+			free(cur);
+		} else {
+			cur->free = snp;
+			*a = cur;
+			return;
+		}
+	}
+}
+
 struct _arena *
 mkblk(size_t cap)
 {
@@ -137,11 +164,10 @@ mkblk(size_t cap)
 	if (a == NULL)
 		err("malloc:");
 	a->cap = cap;
-	a->data = mmap(NULL, cap, PROT_READ | PROT_WRITE,
-	               MAP_PRIVATE | MAP_ANON, -1, 0);
+	a->data = a->free = mmap(NULL, cap, PROT_READ | PROT_WRITE,
+	                         MAP_PRIVATE | MAP_ANON, -1, 0);
 	if (a->data == MAP_FAILED)
 		err("mmap:");
-	a->free = a->data;
 	return a;
 }
 

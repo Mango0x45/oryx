@@ -37,6 +37,10 @@ void *_arena_grow(arena_t *a, void *ptr, size_t old_nmemb, size_t new_nmemb,
                   size_t size, size_t align)
 	__attribute__((returns_nonnull, nonnull, warn_unused_result));
 
+typedef void *snapshot_t;
+snapshot_t arena_snapshot_create(arena_t);
+void arena_snapshot_restore(arena_t *, snapshot_t);
+
 /* Deallocate all memory associated with the arena A. */
 void arena_free(arena_t *a)
 	__attribute__((nonnull));
