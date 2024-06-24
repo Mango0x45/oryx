@@ -15,7 +15,7 @@ Portuguese or ‘Όρυξ’ in Greek) as opposed to using the English name.
 Building the Oryx compiler is rather trivial.  The steps are as follows:
 
 1.  Install the LLVM libraries and -headers.  They should be available
-    through your systems package manager.  Do note that as on 24/06/2024
+    through your systems package manager.  Do note that as of 24/06/2024
     the version of LLVM being utilized is 17.0.6.  The compiler may work
     with other versions, but it isn’t guaranteed.
 
