@@ -199,7 +199,6 @@ analyzedecl(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	ltype.kind = TYPE_UNSET;
 
 	idx_t typeidx = aux.buf[p.lhs].decl.type;
-
 	assert(typeidx != AST_EMPTY || p.rhs != AST_EMPTY);
 
 	idx_t ni;
