@@ -6,6 +6,14 @@
 
 #include "common.h"
 
+/* Callers should not modify _ARENA_DFLT_CAP.  This is included here so
+   that it can be accessed from the automated tests. */
+#if DEBUG
+#	define _ARENA_DFLT_CAP (8)
+#else
+#	define _ARENA_DFLT_CAP (2 * 1024)
+#endif
+
 typedef struct _arena *arena_t;
 typedef struct {
 	void *p;

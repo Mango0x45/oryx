@@ -54,20 +54,19 @@ static char *argv0;
 static bool fflag, Fflag, rflag, Sflag;
 static int simd_flags;
 
-static void cc(void *);
-static void gperf(void *);
 static void ld(void);
 static void mkgmp(int);
 static bool tagvalid(const char *);
 static void chk_cpu_flags(void);
 static int globerr(const char *, int);
+static tjob cc, cc_test, gperf;
 
 static void
 usage(void)
 {
 	fprintf(stderr,
 	        "Usage: %s [-frS]\n"
-	        "       %s clean\n",
+	        "       %s clean | distclean | test\n",
 	        argv0, argv0);
 	exit(EXIT_FAILURE);
 }
@@ -107,18 +106,35 @@ main(int argc, char **argv)
 
 	if (argc > 0) {
 		if (strcmp("clean", *argv) == 0) {
-			strspushl(&cmd, "find", ".", "(", "-name", TARGET, "-or", "-name",
-			          "*.o", "-or", "-name", "*.gen.c", ")", "-delete");
+			strspushl(&cmd, "find", ".",
+				"(",
+					"-name", TARGET,
+					"-or", "-name", "*.o",
+					"-or", "-name", "*.gen.c",
+					"-or", "-path", "./test/*", "-and", "-executable",
+				")", "-delete"
+			);
 			cmdput(cmd);
 			return cmdexec(cmd);
 		} else if (strcmp("distclean", *argv) == 0) {
-			strspushl(&cmd, "find", ".", "(", "-name", TARGET, "-or", "-name",
-			          "*.o", "-or", "-name", "*.gen.c", ")",  "-delete");
+			strspushl(&cmd, "find", ".",
+				"(",
+					"-name", TARGET,
+					"-or", "-name", "*.o",
+					"-or", "-name", "*.gen.c",
+					"-or", "-path", "./test/*", "-and", "-executable",
+				")",  "-delete"
+			);
 			cmdput(cmd);
 			cmdexec(cmd);
 			assert(chdir(GMPDIR) != -1);
 			strszero(&cmd);
 			strspushl(&cmd, "make", "distclean");
+			cmdput(cmd);
+			return cmdexec(cmd);
+		} else if (strcmp("test", *argv) == 0) {
+			strspushl(&cmd, "find", "test", "-type", "f", "-executable",
+			          "-exec", "{}", ";");
 			cmdput(cmd);
 			return cmdexec(cmd);
 		} else {
@@ -139,18 +155,27 @@ main(int argc, char **argv)
 	tpinit(&tp, procs);
 
 	glob_t g;
-	assert(glob("src/*.gperf", 0, globerr, &g) == 0);
 
+	/* GNU Perf files */
+	assert(glob("src/*.gperf", 0, globerr, &g) == 0);
 	for (size_t i = 0; i < g.gl_pathc; i++)
 		tpenq(&tp, gperf, g.gl_pathv[i], NULL);
 	tpwait(&tp);
 
+	/* C files */
 	globfree(&g);
 	assert(glob("src/*.c", 0, globerr, &g) == 0);
-
 	for (size_t i = 0; i < g.gl_pathc; i++)
 		tpenq(&tp, cc, g.gl_pathv[i], NULL);
 	tpwait(&tp);
+
+	/* Tests */
+	globfree(&g);
+	assert(glob("test/*.c", 0, globerr, &g) == 0);
+	for (size_t i = 0; i < g.gl_pathc; i++)
+		tpenq(&tp, cc_test, g.gl_pathv[i], NULL);
+	tpwait(&tp);
+
 	tpfree(&tp);
 
 	ld();
@@ -185,6 +210,54 @@ cc(void *arg)
 	if (strcmp(arg, "src/codegen.c") == 0)
 		llvmquery(&cmd, LLVM_CFLAGS);
 	strspushl(&cmd, "-o", dst, "-c", src);
+
+	cmdput(cmd);
+	cmdexec(cmd);
+	strsfree(&cmd);
+out:
+	free(dst);
+}
+
+void
+cc_test(void *arg)
+{
+	struct strs cmd = {0};
+	char *dst, *src = arg;
+
+	assert((dst = strdup(src)) != NULL);
+	*strchr(dst, '.') = 0;
+
+	struct deps {
+		char  *tst;
+		char **objs;
+		size_t len;
+	} deps[] = {
+		{"test/arena", (char *[]){"src/arena.o"}, 1},
+	};
+
+	struct deps d;
+	for (size_t i = 0; i < lengthof(deps); i++) {
+		if (strcmp(deps[i].tst, dst) == 0) {
+			d = deps[i];
+			break;
+		}
+	}
+
+	if (!fflag && !foutdated(dst, d.objs, d.len) && !foutdatedl(dst, src))
+		goto out;
+
+	strspushenvl(&cmd, "CC", "cc");
+	strspush(&cmd, cflags_all, lengthof(cflags_all));
+	if (rflag)
+		strspushenv(&cmd, "CFLAGS", cflags_rls, lengthof(cflags_rls));
+	else
+		strspushenv(&cmd, "CFLAGS", cflags_dbg, lengthof(cflags_dbg));
+	if (!rflag && !Sflag)
+		strspushl(&cmd, "-fsanitize=address,undefined");
+	if (simd_flags != 0)
+		strspushl(&cmd, "-DORYX_SIMD=1");
+	strspushl(&cmd, "-Isrc", "-o", dst, src);
+	strspush(&cmd, d.objs, d.len);
 
 	cmdput(cmd);
 	cmdexec(cmd);

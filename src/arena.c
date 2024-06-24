@@ -16,12 +16,6 @@
 #	error "System not supported (missing MAP_ANON)"
 #endif
 
-#if DEBUG
-#	define ARENA_DFLT_CAP (8)
-#else
-#	define ARENA_DFLT_CAP (2048)
-#endif
-
 #define MAX(x, y)   ((x) > (y) ? (x) : (y))
 #define IS_POW_2(n) ((n) != 0 && ((n) & ((n)-1)) == 0)
 
@@ -68,7 +62,7 @@ arena_alloc(struct _arena **a, size_t nmemb, size_t size, size_t align)
 	}
 
 	/* No page exists with enough space */
-	struct _arena *p = mkblk(MAX(size, ARENA_DFLT_CAP));
+	struct _arena *p = mkblk(MAX(size, _ARENA_DFLT_CAP));
 	p->next = *a;
 	*a = p;
 	p->free = (char *)p->data + size;
