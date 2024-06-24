@@ -8,6 +8,48 @@ use the given language’s translation of the animal’s name (e.g. ‘Órix’�
 Portuguese or ‘Όρυξ’ in Greek) as opposed to using the English name.
 
 
+                             ──────────────────────
+                               Build Instructions
+                             ──────────────────────
+
+Building the Oryx compiler is rather trivial.  The steps are as follows:
+
+1.  Install the LLVM libraries and -headers.  They should be available
+    through your systems package manager.  Do note that as on 24/06/2024
+    the version of LLVM being utilized is 17.0.6.  The compiler may work
+    with other versions, but it isn’t guaranteed.
+
+2.  Clone the compiler repository.
+
+    $ git clone https://github.com/Mango0x45/oryx.git
+
+3.  Bootstrap and run the build script.
+
+    $ cc -o make make.c
+    $ ./make  # See below for more details
+
+If you followed the above steps, you should find the compiler located in
+the root directory of the git repository under the name ‘oryx’.
+
+The build script takes a few optional paramters that might be of
+interest.  They are as follows:
+
+    -F  Force rebuild the compiler and its dependencies in vendor/.
+    -f  Force rebuild the compiler but not its dependencies in vendor/.
+    -r  Build a release build with optimizations enabled.
+    -S  Do not build with the GCC sanitizer.  This option is not required
+        if -r was specified.
+
+The build script also accepts some subcommands.  They are as follows:
+
+    clean       Delete all build artifacts and compiled binaries.
+    distclean   Delete all build artifacts and compiled binaries, as well
+                as those creates by any dependencies in vendor/.
+    test        Run the tests in test/.  This subcommand should only be
+                run after a regular invocation of the build script so
+                that the tests get compiled.
+
+
                          ──────────────────────────────
                            Existing Language Features
                          ──────────────────────────────
