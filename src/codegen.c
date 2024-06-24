@@ -17,6 +17,18 @@
 
 #define lengthof(xs) (sizeof(xs) / sizeof(*(xs)))
 
+/* Cheers to Lernö for this */
+#define LLVM_TARGET_INIT(x)                                                    \
+	do {                                                                       \
+		LLVMInitialize##x##AsmParser();                                        \
+		LLVMInitialize##x##AsmPrinter();                                       \
+		LLVMInitialize##x##TargetInfo();                                       \
+		LLVMInitialize##x##Target();                                           \
+		LLVMInitialize##x##Disassembler();                                     \
+		LLVMInitialize##x##TargetMC();                                         \
+	} while (false)
+
+
 /* A context structure we can pass to all the codegen functions just so they
    have easy access to everything */
 struct cgctx {
@@ -45,12 +57,21 @@ static LLVMTypeRef type2llvm(struct cgctx, type_t);
 static void codegenast(struct cgctx);
 
 void
-codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
-        ast_t ast, aux_t aux, lexemes_t toks)
+codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types, ast_t ast,
+        aux_t aux, lexemes_t toks)
 {
+	LLVM_TARGET_INIT(X86);
+
+	char *error = NULL;
 	char *triple = LLVMGetDefaultTargetTriple();
+	LLVMTargetRef lltarget;
 	LLVMContextRef llctx = LLVMContextCreate();
-	LLVMModuleRef  llmod = LLVMModuleCreateWithNameInContext("oryx", llctx);
+	LLVMModuleRef llmod = LLVMModuleCreateWithNameInContext("oryx", llctx);
+	if (LLVMGetTargetFromTriple(triple, &lltarget, &error) != 0)
+		err("codegen: %s", error);
+	LLVMTargetMachineRef llmach = LLVMCreateTargetMachine(
+		lltarget, triple, "", "", LLVMCodeGenLevelNone, LLVMRelocDefault,
+		LLVMCodeModelDefault);
 
 	struct cgctx ctx = {
 		.a = &(arena_t){0},
@@ -66,7 +87,7 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 		.ctx = llctx,
 		.mod = llmod,
 		.bob = LLVMCreateBuilderInContext(llctx),
-		.td  = LLVMGetModuleDataLayout(llmod),
+		.td  = LLVMCreateTargetDataLayout(llmach),
 	};
 
 	LLVMSetTarget(ctx.mod, triple);
@@ -76,17 +97,22 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 
 	codegenast(ctx);
 
-	char *error = NULL;
+	error = NULL;
 	if (LLVMVerifyModule(ctx.mod, LLVMReturnStatusAction, &error) == 1)
 		err("codegen: %s", error);
 
+	LLVMDumpModule(ctx.mod);
+
+#if DEBUG
 	tmpfree(ctx.s);
 	arena_free(ctx.a);
 	LLVMDisposeBuilder(ctx.bob);
 	LLVMDisposeMessage(error);
-	LLVMDumpModule(ctx.mod);
 	LLVMDisposeModule(ctx.mod);
+	LLVMDisposeTargetData(ctx.td);
+	LLVMDisposeTargetMachine(llmach);
 	LLVMContextDispose(ctx.ctx);
+#endif
 }
 
 static idx_t codegendecl(struct cgctx ctx, idx_t);
