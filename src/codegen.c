@@ -60,6 +60,7 @@ void
 codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types, ast_t ast,
         aux_t aux, lexemes_t toks)
 {
+	LLVM_TARGET_INIT(AArch64);
 	LLVM_TARGET_INIT(X86);
 
 	char *error = NULL;
