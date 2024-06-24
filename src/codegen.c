@@ -30,10 +30,11 @@ struct cgctx {
 	aux_t     aux;
 	lexemes_t toks;
 
-	LLVMContextRef ctx;
-	LLVMModuleRef  mod;
-	LLVMBuilderRef bob;
-	LLVMValueRef   func;
+	LLVMBuilderRef    bob;
+	LLVMContextRef    ctx;
+	LLVMModuleRef     mod;
+	LLVMTargetDataRef td;
+	LLVMValueRef      func;
 
 	idx_t scpi;
 	strview_t namespace;
@@ -49,6 +50,7 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 {
 	char *triple = LLVMGetDefaultTargetTriple();
 	LLVMContextRef llctx = LLVMContextCreate();
+	LLVMModuleRef  llmod = LLVMModuleCreateWithNameInContext("oryx", llctx);
 
 	struct cgctx ctx = {
 		.a = &(arena_t){0},
@@ -62,12 +64,14 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types,
 		.toks  = toks,
 
 		.ctx = llctx,
-		.mod = LLVMModuleCreateWithNameInContext("oryx", llctx),
+		.mod = llmod,
 		.bob = LLVMCreateBuilderInContext(llctx),
+		.td  = LLVMGetModuleDataLayout(llmod),
 	};
 
-	LLVMSetSourceFileName(ctx.mod, file, strlen(file));
 	LLVMSetTarget(ctx.mod, triple);
+	LLVMSetModuleDataLayout(ctx.mod, ctx.td);
+	LLVMSetSourceFileName(ctx.mod, file, strlen(file));
 	LLVMDisposeMessage(triple);
 
 	codegenast(ctx);
@@ -303,9 +307,8 @@ type2llvm(struct cgctx ctx, type_t t)
 			default: __builtin_unreachable();
 			}
 		}
-		/* TODO: Arbitrary precision */
 		if (t.size == 0)
-			return LLVMInt64TypeInContext(ctx.ctx);
+			return LLVMIntPtrTypeInContext(ctx.ctx, ctx.td);
 		assert((unsigned)t.size * 8 <= UINT8_MAX);
 		return LLVMIntTypeInContext(ctx.ctx, t.size * 8);
 	default:
