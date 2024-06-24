@@ -105,15 +105,15 @@ void
 analyzeprog(ast_t ast, aux_t aux, lexemes_t toks, arena_t *a, type_t **types,
             scope_t **scps, mpq_t **folds)
 {
-	*types = bufalloc(NULL, ast.len, sizeof(**types));
-	memset(*types, 0, ast.len * sizeof(**types));
+	if ((*types = calloc(ast.len, sizeof(**types))) == NULL)
+		err("calloc:");
 
 	*scps = gensymtabs(ast, aux, toks, a);
 	analyzeast(*scps, *types, ast, aux, toks, a);
 
 	scratch_t s = {0};
-	*folds = bufalloc(NULL, ast.len, sizeof(**folds));
-	memset(*folds, 0, ast.len * sizeof(**folds));
+	if ((*folds = calloc(ast.len, sizeof(**folds))) == NULL)
+		err("calloc:");
 	constfold(*folds, *scps, *types, ast, toks, a, &s);
 }
 
