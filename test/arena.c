@@ -35,6 +35,22 @@ make_and_free(void)
 		xs[i] = i;
 
 	arena_free(&a);
+
+	/* Assert that after arena_free(), the page was actually freed */
+
+	unsigned char *vec = NULL;
+	size_t pagesz = (size_t)sysconf(_SC_PAGESIZE);
+	oryx_assert(pagesz != (size_t)-1);
+
+	/* Vector size documented in mincore(2) */
+	vec = malloc((_ARENA_DFLT_CAP + pagesz - 1) / pagesz);
+	oryx_assert(vec != NULL);
+
+	errno = 0;
+	mincore(xs, sizeof(int) * 69, vec);
+	oryx_assert(errno == ENOMEM);
+cleanup:
+	free(vec);
 }
 
 void
