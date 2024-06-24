@@ -200,28 +200,52 @@ codegenalloca(struct cgctx ctx, idx_t i)
 }
 
 idx_t
-codegenfunc(struct cgctx ctx, idx_t i, const char *name)
+codegenfunc(struct cgctx ctx, idx_t i, strview_t sv)
 {
+	size_t namesz = ctx.namespace.len + sv.len + 1;
+	char *name = arena_new(ctx.a, char, namesz + 1);
+	if (ctx.namespace.len == 0) {
+		svtocstr(name, sv);
+		namesz--;
+	} else
+		sprintf(name, "%.*s.%.*s", SV_PRI_ARGS(ctx.namespace), SV_PRI_ARGS(sv));
+
+	ctx.namespace.p = name;
+	ctx.namespace.len = namesz;
+
+	idx_t proto = ctx.ast.kids[i].lhs;
+	idx_t blk = ctx.ast.kids[i].rhs;
+
+	snapshot_t snap = arena_snapshot_create(*ctx.a);
+	for (idx_t i = ctx.ast.kids[blk].lhs; i <= ctx.ast.kids[blk].rhs;
+	     i = fwdnode(ctx.ast, i))
+	{
+		if (ctx.ast.kinds[i] == ASTCDECL && ctx.ast.kids[i].rhs != AST_EMPTY
+		    && ctx.ast.kinds[ctx.ast.kids[i].rhs] == ASTFN)
+		{
+			(void)codegendecl(ctx, i);
+		}
+	}
+	arena_snapshot_restore(ctx.a, snap);
+
 	LLVMTypeRef ret = ctx.types[i].ret == NULL
 	                    ? LLVMVoidTypeInContext(ctx.ctx)
 	                    : type2llvm(ctx, *ctx.types[i].ret);
 
 	LLVMTypeRef ft = LLVMFunctionType(ret, NULL, 0, false);
 	ctx.func = LLVMAddFunction(ctx.mod, name, ft);
-	LLVMBasicBlockRef entry =
-		LLVMAppendBasicBlockInContext(ctx.ctx, ctx.func, "entry");
+	LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx.ctx, ctx.func,
+	                                                        "entry");
 	LLVMPositionBuilderAtEnd(ctx.bob, entry);
 
-	idx_t proto = ctx.ast.kids[i].lhs;
-	idx_t blk   = ctx.ast.kids[i].rhs;
-
-	snapshot_t snap = arena_snapshot_create(*ctx.a);
+	snap = arena_snapshot_create(*ctx.a);
 	(void)codegenalloca(ctx, blk);
 	arena_snapshot_restore(ctx.a, snap);
 
 	i = codegenblk(ctx, blk);
 	if (ctx.ast.kids[proto].rhs == AST_EMPTY)
 		LLVMBuildRetVoid(ctx.bob);
+
 	return i;
 }
 
@@ -232,14 +256,14 @@ codegendecl(struct cgctx ctx, idx_t i)
 
 	if (ctx.ast.kinds[i] == ASTCDECL) {
 		/* Constants are purely a compiler concept; they aren’t generated
-		   into anything */
-		if (ctx.ast.kinds[p.rhs] != ASTFN)
+		   into anything unless they’re functions… but functions
+		   shouldn’t be generated if we’re inside a function already,
+		   because codegenfunc() will have already generated its child
+		   functions before codegendecl() gets called. */
+		if (ctx.ast.kinds[p.rhs] != ASTFN || ctx.func != NULL)
 			return fwdnode(ctx.ast, i);
 
-		/* TODO: Namespace the name */
-		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
-		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
-		return codegenfunc(ctx, p.rhs, svtocstr(name, sv));
+		return codegenfunc(ctx, p.rhs, ctx.toks.strs[ctx.ast.lexemes[i]]);
 	}
 
 	assert(ctx.ast.kinds[i] == ASTDECL);

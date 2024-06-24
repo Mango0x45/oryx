@@ -61,3 +61,17 @@ Portuguese or ‘Όρυξ’ in Greek) as opposed to using the English name.
             x: int = 69;
             y: i64 = x;  /* Compile-time error */
         }
+
+7.  Nested functions are supported, but not closures.  Closures will
+    never be supported in the language.
+
+        /* Recall that constants (including functions!) can be declared
+           in any order.  This lets us define Inner *after* it gets
+           called by the assignment to ‘x’. */
+        Outer :: () {
+            x := Inner(5);
+
+            Inner :: (x: int) int {
+                return x;
+            }
+        }
