@@ -378,20 +378,22 @@ type2llvm(struct cgctx ctx, type_t t)
 	case TYPE_FN:
 		err("codegen: %s: Not implemented for function types", __func__);
 	case TYPE_NUM:
+		assert(t.size != 0);
 		assert((unsigned)t.size * 8 <= 128);
-		if (t.isfloat) {
-			switch (t.size) {
-			case  2: return LLVMHalfTypeInContext(ctx.ctx);
-			case  4: return LLVMFloatTypeInContext(ctx.ctx);
-			case  0:
-			case  8: return LLVMDoubleTypeInContext(ctx.ctx);
-			case 16: return LLVMFP128TypeInContext(ctx.ctx);
-			default: __builtin_unreachable();
-			}
+		if (!t.isfloat)
+			return LLVMIntTypeInContext(ctx.ctx, t.size * 8);
+		switch (t.size) {
+		case 2:
+			return LLVMHalfTypeInContext(ctx.ctx);
+		case 4:
+			return LLVMFloatTypeInContext(ctx.ctx);
+		case 8:
+			return LLVMDoubleTypeInContext(ctx.ctx);
+		case 16:
+			return LLVMFP128TypeInContext(ctx.ctx);
+		default:
+			__builtin_unreachable();
 		}
-		if (t.size == 0)
-			return LLVMIntPtrTypeInContext(ctx.ctx, ctx.td);
-		return LLVMIntTypeInContext(ctx.ctx, t.size * 8);
 	default:
 		__builtin_unreachable();
 	}
