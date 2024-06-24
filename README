@@ -31,7 +31,7 @@ Building the Oryx compiler is rather trivial.  The steps are as follows:
 If you followed the above steps, you should find the compiler located in
 the root directory of the git repository under the name ‘oryx’.
 
-The build script takes a few optional paramters that might be of
+The build script takes a few optional parameters that might be of
 interest.  They are as follows:
 
     -F  Force rebuild the compiler and its dependencies in vendor/.
