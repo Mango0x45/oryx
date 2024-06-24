@@ -72,8 +72,17 @@ The build script also accepts some subcommands.  They are as follows:
         x: int = 69;  /* Declare an integer and set it to 69 */
         x:     = 69;  /* Same as above but infer the type */
         x := 69;      /* Recommended style when inferring types */
-        x: int = …;   /* Declare an uninitialized integer (preferred) */
+        x: int = …;   /* Declare an uninitialized integer */
         x: int = ...; /* Same as above when Unicode is not possible */
+
+    When declaring an uninitialized variable, the recommended style is to
+    use U+2026 HORIZONTAL ELLIPSIS.  If you cannot bind that codepoint to
+    your keyboard, you should investigate the key-remapping faculties of
+    your text editor.  For example, (Neo)Vim users may try the following:
+
+        inoremap ... …
+        " or if you don’t like the above…
+        inoremap <C-.> …
 
 4.  Declaration of constant variables with optional type-inference
     including constants of arbitrary precision.  The syntax is
