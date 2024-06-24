@@ -333,7 +333,7 @@ type2llvm(struct cgctx ctx, type_t t)
 		}
 		if (t.size == 0)
 			return LLVMIntPtrTypeInContext(ctx.ctx, ctx.td);
-		assert((unsigned)t.size * 8 <= UINT8_MAX);
+		assert((unsigned)t.size * 8 <= 128);
 		return LLVMIntTypeInContext(ctx.ctx, t.size * 8);
 	default:
 		__builtin_unreachable();
