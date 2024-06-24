@@ -300,7 +300,7 @@ ld(void)
 	if (!rflag && !Sflag)
 		strspushl(&cmd, "-fsanitize=address,undefined");
 	llvmquery(&cmd, LLVM_LDFLAGS | LLVM_LIBS);
-	strspushl(&cmd, "-o", TARGET);
+	strspushl(&cmd, "-lm", "-o", TARGET);
 
 	assert(glob("src/*.o", 0, globerr, &g) == 0);
 	for (size_t i = 0; i < g.gl_pathc; i++) {

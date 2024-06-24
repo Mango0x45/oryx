@@ -155,13 +155,36 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		*outv = LLVMConstIntOfString(type2llvm(ctx, type), buf, 10);
 		return fwdnode(ctx.ast, i);
 	} else if (MPQ_IS_INIT(ctx.folds[i]) /* && type.isfloat */) {
-		/* FIXME: This is bad and broken */
+		char *s, *buf;
+		size_t len;
 		mpf_t x;
-		mpf_init(x);
+		mp_exp_t e;
+		mp_bitcnt_t prec;
+
+		/* TODO: Is this even correct? */
+		switch (type.size) {
+		case 2:  prec =  5; break;
+		case 4:  prec =  8; break;
+		case 8:  prec = 11; break;
+		case 16: prec = 16; break;
+		default: __builtin_unreachable();
+		}
+
+		mpf_init2(x, prec);
 		mpf_set_q(x, ctx.folds[i]);
-		char buf[256];
-		gmp_snprintf(buf, sizeof(buf), "%Ff", x);
+
+		s = mpf_get_str(NULL, &e, 10, 0, x);
+		len = strlen(s);
+		buf = tmpalloc(ctx.s, len + 2, 1);
+		for (size_t i = 0; i < (size_t)e; i++)
+			buf[i] = s[i];
+		buf[e] = '.';
+		for (size_t i = e; i < len; i++)
+			buf[i + 1] = s[i];
+		buf[len + 1] = 0;
 		*outv = LLVMConstRealOfString(type2llvm(ctx, type), buf);
+
+		free(s);
 		mpf_clear(x);
 		return fwdnode(ctx.ast, i);
 	}

@@ -1,5 +1,7 @@
 #include <assert.h>
 #include <ctype.h>
+#include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -16,6 +18,10 @@
 #include "strview.h"
 #include "symtab.h"
 #include "types.h"
+
+#define LOG2_10       (3.321928)
+#define MP_BITCNT_MAX ((mp_bitcnt_t)-1)
+#define MIN(x, y)     ((x) < (y) ? (x) : (y))
 
 /* In debug builds we want to actually alloc a new mpq_t so that it’s
    easier to free memory without doing a double free */
@@ -259,11 +265,14 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
             aux_t aux, lexemes_t toks, idx_t i)
 {
 	switch (ast.kinds[i]) {
-	case ASTNUMLIT:
+	case ASTNUMLIT: {
+		strview_t sv = toks.strs[ast.lexemes[i]];
 		types[i].kind = TYPE_NUM;
 		types[i].size = 0;
 		types[i].issigned = true;
+		types[i].isfloat = memchr(sv.p, '.', sv.len) != NULL;
 		return fwdnode(ast, i);
+	}
 	case ASTIDENT: {
 		strview_t sv = toks.strs[ast.lexemes[i]];
 
@@ -403,11 +412,13 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		buf[len] = 0;
 
 		if (isfloat) {
+			/* TODO: Is this correct?  It seems to work… but I don’t know
+			   if there is a better way to do this; sometimes the
+			   precision is a few bits more than it could be. */
 			mpf_t x;
-			/* FIXME: This uses global precision, not thread safe! */
-			/* FIXME: This doesn’t try to figure out what the correct
-			   precision is. */
-			int ret = mpf_init_set_str(x, buf, 10);
+			double prec = ceil((sv.len - 1) * LOG2_10);
+			mpf_init2(x, MIN(MP_BITCNT_MAX, (mp_bitcnt_t)prec));
+			int ret = mpf_set_str(x, buf, 10);
 			assert(ret == 0);
 			mpq_set_f(folds[i], x);
 			mpf_clear(x);
