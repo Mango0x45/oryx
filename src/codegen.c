@@ -29,7 +29,6 @@
 		LLVMInitialize##x##TargetMC();                                         \
 	} while (false)
 
-
 /* A context structure we can pass to all the codegen functions just so they
    have easy access to everything */
 struct cgctx {
@@ -53,9 +52,11 @@ struct cgctx {
 	strview_t namespace;
 };
 
+static void codegenast(struct cgctx);
 static LLVMTypeRef type2llvm(struct cgctx, type_t);
 
-static void codegenast(struct cgctx);
+extern bool lflag, sflag;
+extern const char *oflag;
 
 void
 codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types, ast_t ast,
@@ -103,7 +104,26 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types, ast_t ast,
 	if (LLVMVerifyModule(ctx.mod, LLVMReturnStatusAction, &error) == 1)
 		err("codegen: %s", error);
 
-	LLVMDumpModule(ctx.mod);
+	if (lflag) {
+		if (oflag == NULL)
+			LLVMDumpModule(ctx.mod);
+		else if (LLVMPrintModuleToFile(llmod, oflag, &error) == 1)
+			err("codegen: %s", error);
+	} else {
+		LLVMCodeGenFileType ft;
+		const char *dst = oflag == NULL ? "out.o" : oflag;
+
+		if (sflag) {
+			size_t n = strlen(dst);
+			char *buf = memcpy(tmpalloc(ctx.s, n + 1, 1), dst, n);
+			buf[n - 1] = 's';
+			buf[n - 0] = 0;
+			dst = buf;
+			ft = LLVMAssemblyFile;
+		} else
+			ft = LLVMObjectFile;
+		LLVMTargetMachineEmitToFile(llmach, llmod, dst, ft, &error);
+	}
 
 #if DEBUG
 	tmpfree(ctx.s);

@@ -6,6 +6,9 @@
 #include <unistd.h>
 
 #include <gmp.h>
+#define OPTPARSE_API static
+#define OPTPARSE_IMPLEMENTATION
+#include <optparse.h>
 
 #include "alloc.h"
 #include "analyzer.h"
@@ -20,16 +23,54 @@
 static char *readfile(const char *file, size_t *bufsz)
 	__attribute__((returns_nonnull, nonnull));
 
+bool lflag, sflag;
+const char *oflag;
+
 int
 main(int argc, char **argv)
 {
-	if (argc != 2) {
-		fputs("Usage: oryx file\n", stderr);
-		exit(EXIT_FAILURE);
+	struct optparse_long longopts[] = {
+		{"assembly",  's', OPTPARSE_NONE},
+		{"emit-llvm", 'l', OPTPARSE_NONE},
+		{"output",    'o', OPTPARSE_REQUIRED},
+		{0},
+	};
+
+	int opt;
+	struct optparse opts;
+	optparse_init(&opts, argv);
+
+	while ((opt = optparse_long(&opts, longopts, NULL)) != -1) {
+		switch (opt) {
+		case 'o':
+			oflag = opts.optarg;
+			break;
+		case 'l':
+			lflag = true;
+			break;
+		case 's':
+			sflag = true;
+			break;
+		default:
+			/* TODO: Add warn() to errors.h */
+			fprintf(stderr, "oryx: %s\n", opts.errmsg);
+usage:
+			fprintf(stderr, "Usage: oryx [-l | -s] [-o file] source\n");
+			exit(EXIT_FAILURE);
+		}
 	}
 
+	if (lflag && sflag)
+		goto usage;
+
+	argc -= opts.optind;
+	argv += opts.optind;
+
+	if (argc != 1)
+		goto usage;
+
 	size_t srclen;
-	char *src = readfile(argv[1], &srclen);
+	char *src = readfile(argv[0], &srclen);
 
 	aux_t aux;
 	mpq_t *folds;
@@ -40,7 +81,7 @@ main(int argc, char **argv)
 	lexemes_t toks = lexstring(src, srclen);
 	ast_t ast = parsetoks(toks, &aux);
 	analyzeprog(ast, aux, toks, &a, &types, &scps, &folds);
-	codegen(argv[1], folds, scps, types, ast, aux, toks);
+	codegen(argv[0], folds, scps, types, ast, aux, toks);
 
 #if DEBUG
 	for (size_t i = 0; i < ast.len; i++) {

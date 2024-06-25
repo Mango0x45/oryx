@@ -12,6 +12,7 @@
 
 #define TARGET "oryx"
 #define GMPDIR "vendor/gmp-6.3.0"
+#define OPDIR  "vendor/optparse-master"
 
 enum {
 	SIMD_AVX2 = 1 << 0,
@@ -21,6 +22,7 @@ enum {
 
 static char *cflags_all[] = {
 	("-I" GMPDIR),
+	("-I" OPDIR),
 	"-pipe",
 	"-std=c11",
 	"-Wall",
