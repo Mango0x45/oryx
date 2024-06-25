@@ -129,6 +129,7 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 		aux->buf = bufalloc(aux->buf, aux->cap, sizeof(*aux->buf));
 	}
 
+	/* TODO: Support ‘static’ as a keyword */
 	aux->buf[j].decl.isstatic = toplvl;
 	aux->buf[j].decl.isundef  = false;
 	if (toplvl && toks.kinds[toksidx] == LEXIDENT
