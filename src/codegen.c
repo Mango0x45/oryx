@@ -268,8 +268,10 @@ codegenfunc(struct cgctx ctx, idx_t i, strview_t sv)
 	if (ctx.namespace.len == 0) {
 		svtocstr(name, sv);
 		namesz--;
-	} else
-		sprintf(name, "%.*s.%.*s", SV_PRI_ARGS(ctx.namespace), SV_PRI_ARGS(sv));
+	} else {
+		snprintf(name, namesz + 1, "%.*s.%.*s", SV_PRI_ARGS(ctx.namespace),
+		         SV_PRI_ARGS(sv));
+	}
 
 	ctx.namespace.p = name;
 	ctx.namespace.len = namesz;

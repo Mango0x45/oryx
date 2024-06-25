@@ -116,8 +116,9 @@ lexstring(const uchar *code, size_t codesz)
 			break;
 
 		case '0': case '1': case '2': case '3': case '4':
-		case '5': case '6': case '7': case '8': case '9': {
+		case '5': case '6': case '7': case '8': case '9':
 number:
+		{
 			bool saw_dot = false;
 			data.kinds[data.len] = LEXNUM;
 			data.strs[data.len].p = spnbeg;
@@ -179,7 +180,7 @@ mklexemes(void)
 
 	static_assert(offsetof(lexemes_t, kinds) < offsetof(lexemes_t, strs),
 	              "KINDS is not the first field before STRS");
-	static_assert(LEXEMES_DFLT_CAP * sizeof(*soa.kinds) % alignof(*soa.strs)
+	static_assert(LEXEMES_DFLT_CAP * sizeof(*soa.kinds) % alignof(strview_t)
 	                  == 0,
 	              "Additional padding is required to properly align STRS");
 
@@ -209,9 +210,9 @@ lexemesresz(lexemes_t *soa)
 	ncap = soa->cap << 1;
 
 	/* Ensure that soa->strs is properly aligned */
-	pad = alignof(*soa->strs)
-	    - ncap * sizeof(*soa->kinds) % alignof(*soa->strs);
-	if (pad == alignof(*soa->strs))
+	pad = alignof(strview_t)
+	    - ncap * sizeof(*soa->kinds) % alignof(strview_t);
+	if (pad == alignof(strview_t))
 		pad = 0;
 
 	newsz = ncap * LEXEMES_BLKSZ + pad;

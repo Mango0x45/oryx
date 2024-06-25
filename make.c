@@ -207,8 +207,7 @@ cc(void *arg)
 		strspushl(&cmd, "-fsanitize=address,undefined");
 	if (simd_flags != 0)
 		strspushl(&cmd, "-DORYX_SIMD=1");
-	if (strcmp(arg, "src/codegen.c") == 0)
-		llvmquery(&cmd, LLVM_CFLAGS);
+	llvmquery(&cmd, LLVM_CFLAGS);
 	strspushl(&cmd, "-o", dst, "-c", src);
 
 	cmdput(cmd);
