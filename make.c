@@ -20,7 +20,7 @@ enum {
 };
 
 static char *cflags_all[] = {
-	"-I" GMPDIR,
+	("-I" GMPDIR),
 	"-pipe",
 	"-std=c11",
 	"-Wall",
