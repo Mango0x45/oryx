@@ -28,7 +28,7 @@ u32,  { TYPE_NUM, {.size =  4, .issigned=false, .isfloat=false} }
 u64,  { TYPE_NUM, {.size =  8, .issigned=false, .isfloat=false} }
 u128, { TYPE_NUM, {.size = 16, .issigned=false, .isfloat=false} }
 uint, { TYPE_NUM, {.size =  8, .issigned=false, .isfloat=false} }
-rune, { TYPE_NUM ,{.size =  4, .issigned=true,  .isfloat=false} }
+rune, { TYPE_NUM, {.size =  4, .issigned=true,  .isfloat=false} }
 f16,  { TYPE_NUM, {.size =  2, .issigned=true,  .isfloat=true } }
 f32,  { TYPE_NUM, {.size =  4, .issigned=true,  .isfloat=true } }
 f64,  { TYPE_NUM, {.size =  8, .issigned=true,  .isfloat=true } }
