@@ -80,7 +80,9 @@ ast_t
 parsetoks(lexemes_t toks, aux_t *aux)
 {
 	ast_t ast = mkast();
-	aux->buf = bufalloc(NULL, aux->cap = AUX_DFLT_CAP, sizeof(*aux->buf));
+	aux->len = 0;
+	aux->cap = AUX_DFLT_CAP;
+	aux->buf = bufalloc(NULL, aux->cap, sizeof(*aux->buf));
 
 	for (;;) {
 		(void)parsedecl(&ast, aux, toks, true);
