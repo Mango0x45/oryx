@@ -1,3 +1,0 @@
-[submodule "vendor/mlib"]
-	path = vendor/mlib
-	url = https://github.com/Mango0x45/mlib.git
