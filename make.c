@@ -436,7 +436,7 @@ chk_cpu_flags(void)
 #endif
 
 	/* Test for NEON */
-#if __ARM_NEON
+#if __ARM_NEON || __ARM_NEON__
 	simd_flags |= SIMD_NEON;
 #endif
 }
