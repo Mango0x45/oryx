@@ -5,8 +5,6 @@
 #include "common.h"
 #include "types.h"
 
-#define MIN(x, y) ((x) < (y) ? (x) : (y))
-
 bool
 skpcmnt(const uchar **ptr, const uchar *end)
 {

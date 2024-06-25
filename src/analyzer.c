@@ -21,7 +21,6 @@
 
 #define LOG2_10       (3.321928)
 #define MP_BITCNT_MAX ((mp_bitcnt_t)-1)
-#define MIN(x, y)     ((x) < (y) ? (x) : (y))
 
 /* In debug builds we want to actually alloc a new mpq_t so that it’s
    easier to free memory without doing a double free */

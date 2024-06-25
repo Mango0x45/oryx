@@ -16,7 +16,6 @@
 #	error "System not supported (missing MAP_ANON)"
 #endif
 
-#define MAX(x, y)   ((x) > (y) ? (x) : (y))
 #define IS_POW_2(n) ((n) != 0 && ((n) & ((n)-1)) == 0)
 
 struct _arena {

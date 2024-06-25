@@ -19,4 +19,15 @@
 
 #define MPQ_IS_INIT(x) (mpq_denref(x)->_mp_d != NULL)
 
+/* Some headers like <sys/param.h> may define these */
+#ifdef MIN
+#	undef MIN
+#endif
+#ifdef MAX
+#	undef MAX
+#endif
+
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
+
 #endif /* !ORYX_COMMON_H */

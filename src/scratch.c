@@ -18,8 +18,6 @@
 #	define TMP_DFLT_BUFSZ (1 * 1024)
 #endif
 
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
-
 void *
 tmpalloc(scratch_t *s, size_t nmemb, size_t size)
 {
