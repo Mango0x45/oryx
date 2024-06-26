@@ -347,7 +347,7 @@ mkgmp(int nprocs)
 		strszero(&cmd);
 
 		if (Fflag) {
-			strspushl(&cmd, "make", "distclean");
+			strspushl(&cmd, "make", "clean");
 			cmdput(cmd);
 			if ((ret = cmdexec(cmd)) != EXIT_SUCCESS)
 				exit(ret);
