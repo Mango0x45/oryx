@@ -189,7 +189,12 @@ analyzedecl(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
             aux_t aux, lexemes_t toks, idx_t i)
 {
 	strview_t sv = toks.strs[ast.lexemes[i]];
-	if (ctx.si > 0 && ast.kinds[i] == ASTDECL) {
+
+	bool isstatic = ast.kinds[i] <= _AST_DECLS_END
+	             && aux.buf[ast.kids[i].lhs].decl.isstatic;
+	bool isconst = ast.kinds[i] == ASTCDECL;
+
+	if (!isconst && !isstatic) {
 		symval_t *sym = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
 		if (sym->exists) {
 			err("analyzer: Variable ‘%.*s’ declared multiple times",
