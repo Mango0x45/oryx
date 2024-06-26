@@ -309,6 +309,16 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 
 		err("analyzer: Unknown symbol ‘%.*s’", SV_PRI_ARGS(sv));
 	}
+	case ASTUNNEG: {
+		idx_t ni, rhs;
+		rhs = ast.kids[i].rhs;
+		ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
+		type_t t = types[rhs];
+		if (t.kind != TYPE_NUM || !t.issigned)
+			err("analyzer: Unary negation is reserved for signed numeric types");
+		types[i] = t;
+		return ni;
+	}
 	case ASTFN:
 		return analyzefn(ctx, scps, types, ast, aux, toks, i);
 	default:
@@ -475,6 +485,16 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 				return fwdnode(ast, i);
 			}
 		}
+	}
+	case ASTUNNEG: {
+		idx_t rhs = ast.kids[i].rhs;
+		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+		mpq_t *x = folds + rhs;
+		if (MPQ_IS_INIT(*x)) {
+			MPQCPY(folds[i], *x);
+			mpq_neg(folds[i], folds[i]);
+		}
+		return ni;
 	}
 	case ASTFN:
 		return constfoldblk(ctx, folds, scps, types, ast, toks,

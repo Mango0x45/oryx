@@ -117,7 +117,7 @@ The build script also accepts some subcommands.  They are as follows:
     different integer types which may have the same size (i.e. int and
     int64)
 
-        pub MyFunc :: () {
+        pub my_func :: () {
             x: int = 69;
             y: i64 = x;  /* Compile-time error */
         }
@@ -128,10 +128,24 @@ The build script also accepts some subcommands.  They are as follows:
         /* Recall that constants (including functions!) can be declared
            in any order.  This lets us define Inner *after* it gets
            called by the assignment to ‘x’. */
-        Outer :: () {
+        outer :: () {
             x := Inner(5);
 
-            Inner :: (x: int) int {
+            inner :: (x: int) int {
                 return x;
             }
+        }
+
+8.  No increment/decrement operators.  The following functions both
+    return 42 as the return values are parsed as (+ (+ 42)) and
+    (- (- 42)) respectively.
+
+        x := 42;
+
+        returns_42 :: () int {
+            return ++x;
+        }
+
+        returns_42′ :: () int {
+            return --x;
         }

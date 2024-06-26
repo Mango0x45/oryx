@@ -50,11 +50,19 @@ enum {
 	   ‘return rhs’ */
 	ASTRET,
 
+	/* Unary negation
+	   ‘-rhs’ */
+	ASTUNNEG,
+
+	/* NOTE: Ensure that the enumerations defined above this comment do
+	   not exceed 37 — the value of ‘%’ — or they will conflict with the
+	   definitions below. */
+
 	/* Binary add
 	   ‘lhs + rhs’ */
 	ASTBINADD = '+',
 
-	/* Binary sub
+	/* Binary subtraction
 	   ‘lhs - rhs’ */
 	ASTBINSUB = '-',
 

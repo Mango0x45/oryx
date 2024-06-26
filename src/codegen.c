@@ -211,13 +211,23 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		return fwdnode(ctx.ast, i);
 	}
 
-	assert(ctx.ast.kinds[i] == ASTIDENT);
-
-	strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
-	LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
-	LLVMValueRef ptrval = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
-	*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "loadtmp");
-	return fwdnode(ctx.ast, i);
+	switch (ctx.ast.kinds[i]) {
+	case ASTIDENT: {
+		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
+		LLVMValueRef ptrval = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
+		*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "loadtmp");
+		return fwdnode(ctx.ast, i);
+	}
+	case ASTUNNEG: {
+		LLVMValueRef v;
+		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs, ctx.types[i], &v);
+		*outv = LLVMBuildNeg(ctx.bob, v, "negtmp");
+		return ni;
+	}
+	default:
+		__builtin_unreachable();
+	}
 }
 
 idx_t

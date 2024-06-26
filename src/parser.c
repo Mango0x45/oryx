@@ -61,6 +61,7 @@ fwdnode(ast_t ast, idx_t i)
 		case ASTBINSUB:
 		case ASTCDECL:
 		case ASTFN:
+		case ASTUNNEG:
 			i = ast.kids[i].rhs;
 			break;
 		case ASTIDENT:
@@ -219,6 +220,13 @@ parseexpr(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
 	(void)aux;
 	idx_t i = astalloc(ast);
+
+	/* Unary plus is kind of a fake syntactic construct.  We just pretend
+	   like it doesn’t exist, but allow it in the syntax to be consistent
+	   with unary negation. */
+	while (toks.kinds[toksidx] == LEXPLUS)
+		toksidx++;
+
 	ast->lexemes[i] = toksidx;
 
 	switch (toks.kinds[toksidx]) {
@@ -230,6 +238,13 @@ parseexpr(ast_t *ast, aux_t *aux, lexemes_t toks)
 		toksidx++;
 		ast->kinds[i] = ASTIDENT;
 		break;
+	case LEXMINUS: {
+		toksidx++;
+		ast->kinds[i] = ASTUNNEG;
+		idx_t rhs = parseexpr(ast, aux, toks);
+		ast->kids[i].rhs = rhs;
+		break;
+	}
 	default:
 		err("parser: Expected expression");
 	}
