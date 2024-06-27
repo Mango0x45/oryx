@@ -144,6 +144,10 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 {
 	/* If true, implies numeric constant */
 	if (MPQ_IS_INIT(ctx.folds[i]) && !type.isfloat) {
+		/* TODO: Move this kind of range checking to the constant folding stage? */
+		if (!type.issigned && mpq_sgn(ctx.folds[i]) == -1)
+			err("Cannot convert negative value to unsigned type");
+
 		mpz_ptr num, den;
 		num = mpq_numref(ctx.folds[i]);
 		den = mpq_denref(ctx.folds[i]);
@@ -151,16 +155,15 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 			err("Invalid integer");
 
 		int cmp;
-		if ((sizeof(unsigned long) >= 8 && type.size <= 8)
-			|| type.size <= 4)
-		{
+		assert(type.size != 0);
+		/* TODO: Can we make the first branch work when the type has the
+		   same size as an unsigned long? */
+		if (type.size < sizeof(unsigned long)) {
 			unsigned long x = 1UL << (type.size * 8 - type.issigned);
 			cmp = mpz_cmp_ui(num, x - 1);
 		} else {
 			mpz_t x;
-			mp_bitcnt_t bits = type.size * 8;
-			if (type.issigned)
-				bits--;
+			mp_bitcnt_t bits = type.size * 8 - type.issigned;
 			mpz_init_set_ui(x, 1);
 			mpz_mul_2exp(x, x, bits);
 			mpz_sub_ui(x, x, 1);
