@@ -75,9 +75,10 @@ lexstring(const uchar *code, size_t codesz)
 			break;
 
 		/* Single-byte literals */
-		case '&': case '(': case ')': case '*': case '+':
-		case '-': case ':': case ';': case '=': case '[':
-		case ']': case '{': case '|': case '}': case '~':
+		case '%': case '&': case '(': case ')': case '*':
+		case '+': case '-': case ':': case ';': case '=':
+		case '[': case ']': case '{': case '|': case '}':
+		case '~':
 			data.kinds[data.len++] = ch;
 			break;
 

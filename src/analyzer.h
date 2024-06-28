@@ -1,6 +1,7 @@
 #ifndef ORYX_ANALYZER_H
 #define ORYX_ANALYZER_H
 
+#include <assert.h>
 #include <stdint.h>
 
 #include <gmp.h>

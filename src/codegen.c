@@ -145,7 +145,8 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 {
 	/* If true, implies numeric constant */
 	if (MPQ_IS_INIT(ctx.folds[i]) && !type.isfloat) {
-		/* TODO: Move this kind of range checking to the constant folding stage? */
+		/* TODO: Move this kind of range checking to the
+		   constant folding stage? */
 		if (!type.issigned && mpq_sgn(ctx.folds[i]) == -1)
 			err("Cannot convert negative value to unsigned type");
 
@@ -189,11 +190,20 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 
 		/* TODO: Is this even correct? */
 		switch (type.size) {
-		case 2:  prec =  5; break;
-		case 4:  prec =  8; break;
-		case 8:  prec = 11; break;
-		case 16: prec = 16; break;
-		default: __builtin_unreachable();
+		case 2:
+			prec = 5;
+			break;
+		case 4:
+			prec = 8;
+			break;
+		case 8:
+			prec = 11;
+			break;
+		case 16:
+			prec = 16;
+			break;
+		default:
+			__builtin_unreachable();
 		}
 
 		mpf_init2(x, prec);
@@ -219,7 +229,8 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 	case ASTIDENT: {
 		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
-		LLVMValueRef ptrval = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
+		LLVMValueRef ptrval =
+			symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
 		*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "loadtmp");
 		return fwdnode(ctx.ast, i);
 	}
@@ -231,21 +242,28 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 	}
 	case ASTBINADD:
 	case ASTBINSUB:
-	case ASTBINMUL: {
-		typedef LLVMValueRef llbfn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, const char *);
+	case ASTBINMUL:
+	case ASTBINDIV: {
+		typedef LLVMValueRef llbfn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef,
+		                           const char *);
 		static const struct binop {
-			llbfn *fn;
+			llbfn *fn[2];
 			const char *name;
-		} binoptbl[_AST_LAST_ENT] = {
-			['+'] = { LLVMBuildAdd, "addtmp" },
-			['-'] = { LLVMBuildSub, "subtmp" },
-			['*'] = { LLVMBuildMul, "multmp" },
+		} binoptbl[UINT8_MAX] = {
+			['+'] = {{LLVMBuildAdd,  LLVMBuildAdd},  "addtmp"},
+			['-'] = {{LLVMBuildSub,  LLVMBuildSub},  "subtmp"},
+			['*'] = {{LLVMBuildMul,  LLVMBuildMul},  "multmp"},
+			['/'] = {{LLVMBuildUDiv, LLVMBuildSDiv}, "divtmp"},
+			['%'] = {{LLVMBuildURem, LLVMBuildSRem}, "remtmp"},
 		};
+
 		LLVMValueRef vl, vr;
-		     (void)codegentypedexpr(ctx, ctx.ast.kids[i].lhs, ctx.types[i], &vl);
-		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs, ctx.types[i], &vr);
+		(void)codegentypedexpr(ctx, ctx.ast.kids[i].lhs, ctx.types[i], &vl);
+		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs,
+		                            ctx.types[i], &vr);
+
 		struct binop bo = binoptbl[ctx.ast.kinds[i]];
-		*outv = bo.fn(ctx.bob, vl, vr, bo.name);
+		*outv = bo.fn[ctx.types[i].issigned](ctx.bob, vl, vr, bo.name);
 		return ni;
 	}
 	default:

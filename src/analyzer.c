@@ -322,7 +322,8 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	case ASTBINADD:
 	case ASTBINSUB:
 	case ASTBINMUL:
-	case ASTBINDIV: {
+	case ASTBINDIV:
+	case ASTBINMOD: {
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
 		rhs = ast.kids[i].rhs;
@@ -330,6 +331,8 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
 		if (!typecompat(types[lhs], types[rhs]))
 			err("analyzer: Binary oprand type mismatch");
+		if (ast.kinds[i] == ASTBINMOD && types[lhs].isfloat)
+			err("analyzer: Modulus is not defined for floating-point types");
 		types[i] = types[rhs];
 		return ni;
 	}
@@ -513,13 +516,15 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 	case ASTBINADD:
 	case ASTBINSUB:
 	case ASTBINMUL:
-	case ASTBINDIV: {
-		static void (*const mpq_fns[_AST_LAST_ENT])(mpq_t, const mpq_t, const mpq_t) = {
+	case ASTBINDIV:
+	case ASTBINMOD: {
+		static void (*const mpq_fns[UINT8_MAX])(mpq_t, const mpq_t, const mpq_t) = {
 			['+'] = mpq_add,
 			['-'] = mpq_sub,
 			['*'] = mpq_mul,
 			['/'] = mpq_div,
 		};
+		/* TODO: Support modulus */
 
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;

@@ -1,7 +1,6 @@
 #ifndef ORYX_LEXER_H
 #define ORYX_LEXER_H
 
-#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -26,6 +25,7 @@ enum {
 	LEXLBRKT  = '[',
 	LEXLPAR   = '(',
 	LEXMINUS  = '-',
+	LEXPERC   = '%',
 	LEXPIPE   = '|',
 	LEXPLUS   = '+',
 	LEXRANGL  = '>',
@@ -42,12 +42,7 @@ enum {
 	   token T to the doubled equivalent by doing T += 193. */
 	LEXLANGL_DBL = UINT8_MAX - 2, /* << */
 	LEXRANGL_DBL = UINT8_MAX - 0, /* >> */
-
-	_LEX_LAST_ENT,
 };
-
-static_assert(_LEX_LAST_ENT - 1 <= UINT8_MAX,
-              "Too many lexer tokens to fix in uint8_t");
 
 #define LEXEMES_BLKSZ (1 + sizeof(strview_t))
 

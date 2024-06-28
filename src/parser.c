@@ -28,8 +28,13 @@ typedef idx_t parsefn(ast_t *, aux_t *, lexemes_t)
 static parsefn parseblk, parsefunc, parseproto, parsestmt, parsetype;
 static idx_t parsedecl(ast_t *, aux_t *, lexemes_t, bool)
 	__attribute__((nonnull));
-static idx_t parseexpr(ast_t *, aux_t *, lexemes_t, int)
+static idx_t parseexpr(ast_t *, lexemes_t, int)
 	__attribute__((nonnull));
+static idx_t parseexprinc(ast_t *, lexemes_t, idx_t, int)
+	__attribute__((nonnull));
+static idx_t parseexpratom(ast_t *, lexemes_t)
+	__attribute__((nonnull));
+static bool isfunc(lexemes_t);
 
 static ast_t mkast(void);
 
@@ -44,14 +49,6 @@ static void astresz(ast_t *ast)
 
 /* TODO: Make thread-local? */
 static size_t toksidx;
-
-static int prectbl[_LEX_LAST_ENT] = {
-	['+'] = 1,
-	['-'] = 1,
-	['*'] = 2,
-	['/'] = 2,
-	['%'] = 2,
-};
 
 idx_t
 fwdnode(ast_t ast, idx_t i)
@@ -70,6 +67,9 @@ fwdnode(ast_t ast, idx_t i)
 			i = ast.kids[i].rhs;
 			break;
 		case ASTBINADD:
+		case ASTBINDIV:
+		case ASTBINMOD:
+		case ASTBINMUL:
 		case ASTBINSUB:
 		case ASTCDECL:
 		case ASTFN:
@@ -187,7 +187,8 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 
 	switch (toks.kinds[toksidx]) {
 	case LEXLPAR:
-		func = true;
+		if (!(func = isfunc(toks)))
+			goto not_fn;
 		if (ast->kinds[i] == ASTDECL)
 			err("Cannot assign function to mutable variable");
 		rhs = parsefunc(ast, aux, toks);
@@ -200,7 +201,8 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 		aux->buf[j].decl.isundef = true;
 		break;
 	default:
-		rhs = parseexpr(ast, aux, toks, 1);
+not_fn:
+		rhs = parseexpr(ast, toks, 0);
 	}
 
 	ast->kids[i].rhs = rhs;
@@ -228,8 +230,18 @@ parsefunc(ast_t *ast, aux_t *aux, lexemes_t toks)
 }
 
 idx_t
-parseexprunit(ast_t *ast, lexemes_t toks)
+parseexpratom(ast_t *ast, lexemes_t toks)
 {
+	/* We handle parenthesised expressions up here because we don’t want
+	   to allocate a new AST node for them */
+	if (toks.kinds[toksidx] == LEXLPAR) {
+		toksidx++;
+		idx_t i = parseexpr(ast, toks, 0);
+		if (toks.kinds[toksidx++] != LEXRPAR)
+			err("parser: Expected closing parenthesis after expression");
+		return i;
+	}
+
 	idx_t i = astalloc(ast);
 
 	/* Unary plus is kind of a fake syntactic construct.  We just pretend
@@ -249,7 +261,7 @@ parseexprunit(ast_t *ast, lexemes_t toks)
 		break;
 	case LEXMINUS:
 		ast->kinds[i] = ASTUNNEG;
-		ast->kids[i].rhs = parseexprunit(ast, toks);
+		ast->kids[i].rhs = parseexpratom(ast, toks);
 		break;
 	default:
 		err("parser: Invalid expression leaf");
@@ -258,16 +270,23 @@ parseexprunit(ast_t *ast, lexemes_t toks)
 }
 
 idx_t
-parseexprinc(ast_t *ast, aux_t *aux, lexemes_t toks, idx_t lhs, int minprec)
+parseexprinc(ast_t *ast, lexemes_t toks, idx_t lhs, int minprec)
 {
+	static const int prectbl[UINT8_MAX] = {
+		['+'] = 1,
+		['-'] = 1,
+		['*'] = 2,
+		['/'] = 2,
+		['%'] = 2,
+	};
+
 	uint8_t op = toks.kinds[toksidx];
 	int nxtprec = prectbl[op];
-	if (nxtprec != 0)
-		toksidx++;
-	if (nxtprec < minprec)
+	if (nxtprec <= minprec)
 		return lhs;
+	toksidx++;
 	idx_t i = astalloc(ast);
-	idx_t rhs = parseexpr(ast, aux, toks, nxtprec);
+	idx_t rhs = parseexpr(ast, toks, nxtprec);
 	ast->kinds[i] = op;
 	ast->lexemes[i] = toksidx - 1;
 	ast->kids[i].lhs = lhs;
@@ -276,13 +295,13 @@ parseexprinc(ast_t *ast, aux_t *aux, lexemes_t toks, idx_t lhs, int minprec)
 }
 
 idx_t
-parseexpr(ast_t *ast, aux_t *aux, lexemes_t toks, int minprec)
+parseexpr(ast_t *ast, lexemes_t toks, int minprec)
 {
-	idx_t lhs = parseexprunit(ast, toks);
+	idx_t lhs = parseexpratom(ast, toks);
 
 	for (;;) {
-		idx_t rhs = parseexprinc(ast, aux, toks, lhs, minprec);
-		if (rhs == lhs)
+		idx_t rhs = parseexprinc(ast, toks, lhs, minprec);
+		if (lhs == rhs)
 			break;
 		lhs = rhs;
 	}
@@ -323,8 +342,8 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;
 
-		idx_t rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, aux, toks, 1)
-		                                            : AST_EMPTY;
+		idx_t rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, toks, 0)
+		                                           : AST_EMPTY;
 		ast->kids[i].rhs = rhs;
 		if (toks.kinds[toksidx++] != LEXSEMI)
 			err("parser: Expected semicolon");
@@ -350,6 +369,23 @@ parsetype(ast_t *ast, aux_t *aux, lexemes_t toks)
 		err("parser: Expected type");
 
 	return i;
+}
+
+bool
+isfunc(lexemes_t toks)
+{
+	assert(toks.kinds[toksidx] == LEXLPAR);
+
+	if (toks.kinds[toksidx + 1] == LEXRPAR)
+		return true;
+	for (size_t i = toksidx + 1;; i++) {
+		switch (toks.kinds[i]) {
+		case LEXRPAR:
+			return false;
+		case LEXCOLON:
+			return true;
+		}
+	}
 }
 
 ast_t
