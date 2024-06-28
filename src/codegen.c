@@ -14,6 +14,7 @@
 #include "analyzer.h"
 #include "common.h"
 #include "errors.h"
+#include "parser.h"
 #include "strview.h"
 
 #define lengthof(xs) (sizeof(xs) / sizeof(*(xs)))
@@ -226,6 +227,25 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		LLVMValueRef v;
 		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs, ctx.types[i], &v);
 		*outv = LLVMBuildNeg(ctx.bob, v, "negtmp");
+		return ni;
+	}
+	case ASTBINADD:
+	case ASTBINSUB:
+	case ASTBINMUL: {
+		typedef LLVMValueRef llbfn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, const char *);
+		static const struct binop {
+			llbfn *fn;
+			const char *name;
+		} binoptbl[_AST_LAST_ENT] = {
+			['+'] = { LLVMBuildAdd, "addtmp" },
+			['-'] = { LLVMBuildSub, "subtmp" },
+			['*'] = { LLVMBuildMul, "multmp" },
+		};
+		LLVMValueRef vl, vr;
+		     (void)codegentypedexpr(ctx, ctx.ast.kids[i].lhs, ctx.types[i], &vl);
+		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs, ctx.types[i], &vr);
+		struct binop bo = binoptbl[ctx.ast.kinds[i]];
+		*outv = bo.fn(ctx.bob, vl, vr, bo.name);
 		return ni;
 	}
 	default:

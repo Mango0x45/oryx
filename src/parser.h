@@ -66,6 +66,14 @@ enum {
 	   ‘lhs - rhs’ */
 	ASTBINSUB = '-',
 
+	/* Binary multiplication
+	   ‘lhs - rhs’ */
+	ASTBINMUL = '*',
+
+	/* Binary division
+	   ‘lhs - rhs’ */
+	ASTBINDIV = '/',
+
 	_AST_LAST_ENT,
 };
 

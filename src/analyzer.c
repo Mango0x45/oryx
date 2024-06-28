@@ -319,6 +319,20 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		types[i] = t;
 		return ni;
 	}
+	case ASTBINADD:
+	case ASTBINSUB:
+	case ASTBINMUL:
+	case ASTBINDIV: {
+		idx_t lhs, rhs;
+		lhs = ast.kids[i].lhs;
+		rhs = ast.kids[i].rhs;
+		analyzeexpr(ctx, scps, types, ast, aux, toks, lhs);
+		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
+		if (!typecompat(types[lhs], types[rhs]))
+			err("analyzer: Binary oprand type mismatch");
+		types[i] = types[rhs];
+		return ni;
+	}
 	case ASTFN:
 		return analyzefn(ctx, scps, types, ast, aux, toks, i);
 	default:
@@ -493,6 +507,28 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		if (MPQ_IS_INIT(*x)) {
 			MPQCPY(folds[i], *x);
 			mpq_neg(folds[i], folds[i]);
+		}
+		return ni;
+	}
+	case ASTBINADD:
+	case ASTBINSUB:
+	case ASTBINMUL:
+	case ASTBINDIV: {
+		static void (*const mpq_fns[_AST_LAST_ENT])(mpq_t, const mpq_t, const mpq_t) = {
+			['+'] = mpq_add,
+			['-'] = mpq_sub,
+			['*'] = mpq_mul,
+			['/'] = mpq_div,
+		};
+
+		idx_t lhs, rhs;
+		lhs = ast.kids[i].lhs;
+		rhs = ast.kids[i].rhs;
+		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, lhs);
+		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
+			mpq_init(folds[i]);
+			mpq_fns[ast.kinds[i]](folds[i], folds[lhs], folds[rhs]);
 		}
 		return ni;
 	}

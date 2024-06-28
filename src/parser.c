@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdalign.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +10,7 @@
 #include "alloc.h"
 #include "common.h"
 #include "errors.h"
+#include "lexer.h"
 #include "parser.h"
 #include "strview.h"
 
@@ -23,8 +25,10 @@
 
 typedef idx_t parsefn(ast_t *, aux_t *, lexemes_t)
 	__attribute__((nonnull));
-static parsefn parseblk, parseexpr, parsefunc, parseproto, parsestmt, parsetype;
+static parsefn parseblk, parsefunc, parseproto, parsestmt, parsetype;
 static idx_t parsedecl(ast_t *, aux_t *, lexemes_t, bool)
+	__attribute__((nonnull));
+static idx_t parseexpr(ast_t *, aux_t *, lexemes_t, int)
 	__attribute__((nonnull));
 
 static ast_t mkast(void);
@@ -40,6 +44,14 @@ static void astresz(ast_t *ast)
 
 /* TODO: Make thread-local? */
 static size_t toksidx;
+
+static int prectbl[_LEX_LAST_ENT] = {
+	['+'] = 1,
+	['-'] = 1,
+	['*'] = 2,
+	['/'] = 2,
+	['%'] = 2,
+};
 
 idx_t
 fwdnode(ast_t ast, idx_t i)
@@ -188,7 +200,7 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 		aux->buf[j].decl.isundef = true;
 		break;
 	default:
-		rhs = parseexpr(ast, aux, toks);
+		rhs = parseexpr(ast, aux, toks, 1);
 	}
 
 	ast->kids[i].rhs = rhs;
@@ -216,9 +228,8 @@ parsefunc(ast_t *ast, aux_t *aux, lexemes_t toks)
 }
 
 idx_t
-parseexpr(ast_t *ast, aux_t *aux, lexemes_t toks)
+parseexprunit(ast_t *ast, lexemes_t toks)
 {
-	(void)aux;
 	idx_t i = astalloc(ast);
 
 	/* Unary plus is kind of a fake syntactic construct.  We just pretend
@@ -229,27 +240,54 @@ parseexpr(ast_t *ast, aux_t *aux, lexemes_t toks)
 
 	ast->lexemes[i] = toksidx;
 
-	switch (toks.kinds[toksidx]) {
+	switch (toks.kinds[toksidx++]) {
 	case LEXNUM:
-		toksidx++;
 		ast->kinds[i] = ASTNUMLIT;
 		break;
 	case LEXIDENT:
-		toksidx++;
 		ast->kinds[i] = ASTIDENT;
 		break;
-	case LEXMINUS: {
-		toksidx++;
+	case LEXMINUS:
 		ast->kinds[i] = ASTUNNEG;
-		idx_t rhs = parseexpr(ast, aux, toks);
-		ast->kids[i].rhs = rhs;
+		ast->kids[i].rhs = parseexprunit(ast, toks);
 		break;
-	}
 	default:
-		err("parser: Expected expression");
+		err("parser: Invalid expression leaf");
+	}
+	return i;
+}
+
+idx_t
+parseexprinc(ast_t *ast, aux_t *aux, lexemes_t toks, idx_t lhs, int minprec)
+{
+	uint8_t op = toks.kinds[toksidx];
+	int nxtprec = prectbl[op];
+	if (nxtprec != 0)
+		toksidx++;
+	if (nxtprec < minprec)
+		return lhs;
+	idx_t i = astalloc(ast);
+	idx_t rhs = parseexpr(ast, aux, toks, nxtprec);
+	ast->kinds[i] = op;
+	ast->lexemes[i] = toksidx - 1;
+	ast->kids[i].lhs = lhs;
+	ast->kids[i].rhs = rhs;
+	return i;
+}
+
+idx_t
+parseexpr(ast_t *ast, aux_t *aux, lexemes_t toks, int minprec)
+{
+	idx_t lhs = parseexprunit(ast, toks);
+
+	for (;;) {
+		idx_t rhs = parseexprinc(ast, aux, toks, lhs, minprec);
+		if (rhs == lhs)
+			break;
+		lhs = rhs;
 	}
 
-	return i;
+	return lhs;
 }
 
 idx_t
@@ -285,7 +323,7 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 		ast->lexemes[i] = toksidx++;
 		ast->kinds[i] = ASTRET;
 
-		idx_t rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, aux, toks)
+		idx_t rhs = toks.kinds[toksidx] != LEXSEMI ? parseexpr(ast, aux, toks, 1)
 		                                            : AST_EMPTY;
 		ast->kids[i].rhs = rhs;
 		if (toks.kinds[toksidx++] != LEXSEMI)
