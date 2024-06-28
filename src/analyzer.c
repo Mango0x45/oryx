@@ -329,15 +329,27 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		rhs = ast.kids[i].rhs;
 		analyzeexpr(ctx, scps, types, ast, aux, toks, lhs);
 		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
+
 		if (!typecompat(types[lhs], types[rhs]))
 			err("analyzer: Binary oprand type mismatch");
+
 		if (ast.kinds[i] == ASTBINMOD) {
 			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat)
 				err("analyzer: Remainder is not defined for non-integer types");
 			if (types[rhs].kind != TYPE_NUM || types[rhs].isfloat)
 				err("analyzer: Remainder is not defined for non-integer types");
 		}
-		types[i] = types[rhs];
+
+		/* In the expression ‘x ⋆ y’ where ⋆ is a binary operator, the
+		   expression has type T if both x and y have type T.  If one of
+		   x or y is a sized type and the other isn’t, then the
+		   expression has the type of the sized type.
+
+		   Additionally if both x and y are unsized types but one is a
+		   floating-point type and the other isn’t, the type of the
+		   expression is an unsized floating-point type. */
+		types[i] = types[lhs].size != 0 ? types[lhs] : types[rhs];
+		types[i].isfloat = types[lhs].isfloat || types[rhs].isfloat;
 		return ni;
 	}
 	case ASTFN:
@@ -519,14 +531,12 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 	}
 	case ASTBINADD:
 	case ASTBINSUB:
-	case ASTBINMUL:
-	case ASTBINDIV: {
+	case ASTBINMUL: {
 		static void (*const mpq_fns[UINT8_MAX])(mpq_t, const mpq_t,
 		                                        const mpq_t) = {
 			['+'] = mpq_add,
 			['-'] = mpq_sub,
 			['*'] = mpq_mul,
-			['/'] = mpq_div,
 		};
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
@@ -536,6 +546,25 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
 			mpq_init(folds[i]);
 			mpq_fns[ast.kinds[i]](folds[i], folds[lhs], folds[rhs]);
+		}
+		return ni;
+	}
+	case ASTBINDIV: {
+		idx_t lhs, rhs;
+		lhs = ast.kids[i].lhs;
+		rhs = ast.kids[i].rhs;
+
+		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, lhs);
+		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+
+		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
+			mpq_init(folds[i]);
+			if (types[i].isfloat)
+				mpq_div(folds[i], folds[lhs], folds[rhs]);
+			else {
+				mpz_tdiv_q(mpq_numref(folds[i]), mpq_numref(folds[lhs]),
+				           mpq_numref(folds[rhs]));
+			}
 		}
 		return ni;
 	}
