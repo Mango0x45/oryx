@@ -378,12 +378,19 @@ isfunc(lexemes_t toks)
 
 	if (toks.kinds[toksidx + 1] == LEXRPAR)
 		return true;
-	for (size_t i = toksidx + 1;; i++) {
+	for (size_t i = toksidx + 1, nst = 1;; i++) {
 		switch (toks.kinds[i]) {
+		case LEXLPAR:
+			nst++;
+			break;
 		case LEXRPAR:
-			return false;
+			if (--nst == 0)
+				return false;
+			break;
 		case LEXCOLON:
 			return true;
+		case LEXEOF:
+			return false;
 		}
 	}
 }
