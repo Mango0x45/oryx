@@ -17,7 +17,8 @@
 #	include <stdio.h>
 #endif
 
-#define MPQ_IS_INIT(x) (mpq_denref(x)->_mp_d != NULL)
+#define MPQ_IS_INIT(x)  (mpq_denref(x)->_mp_d != NULL)
+#define MPQ_IS_WHOLE(x) (mpz_cmp_ui(mpq_denref(x), 1) == 0)
 
 /* Some headers like <sys/param.h> may define these */
 #ifdef MIN

@@ -331,8 +331,12 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
 		if (!typecompat(types[lhs], types[rhs]))
 			err("analyzer: Binary oprand type mismatch");
-		if (ast.kinds[i] == ASTBINMOD && types[lhs].isfloat)
-			err("analyzer: Modulus is not defined for floating-point types");
+		if (ast.kinds[i] == ASTBINMOD) {
+			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat)
+				err("analyzer: Remainder is not defined for non-integer types");
+			if (types[rhs].kind != TYPE_NUM || types[rhs].isfloat)
+				err("analyzer: Remainder is not defined for non-integer types");
+		}
 		types[i] = types[rhs];
 		return ni;
 	}
@@ -488,8 +492,8 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 					MPQCPY(folds[i], folds[expr]);
 					if (!MPQ_IS_INIT(folds[i])) {
 						ctx.si = lvl;
-						(void)constfolddecl(ctx, folds, scps, types,
-						                    ast, toks, sym->i);
+						(void)constfolddecl(ctx, folds, scps, types, ast, toks,
+						                    sym->i);
 						MPQCPY(folds[i], folds[expr]);
 						assert(MPQ_IS_INIT(folds[i]));
 					}
@@ -516,16 +520,14 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 	case ASTBINADD:
 	case ASTBINSUB:
 	case ASTBINMUL:
-	case ASTBINDIV:
-	case ASTBINMOD: {
-		static void (*const mpq_fns[UINT8_MAX])(mpq_t, const mpq_t, const mpq_t) = {
+	case ASTBINDIV: {
+		static void (*const mpq_fns[UINT8_MAX])(mpq_t, const mpq_t,
+		                                        const mpq_t) = {
 			['+'] = mpq_add,
 			['-'] = mpq_sub,
 			['*'] = mpq_mul,
 			['/'] = mpq_div,
 		};
-		/* TODO: Support modulus */
-
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
 		rhs = ast.kids[i].rhs;
@@ -534,6 +536,21 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
 			mpq_init(folds[i]);
 			mpq_fns[ast.kinds[i]](folds[i], folds[lhs], folds[rhs]);
+		}
+		return ni;
+	}
+	case ASTBINMOD: {
+		idx_t lhs, rhs;
+		lhs = ast.kids[i].lhs;
+		rhs = ast.kids[i].rhs;
+
+		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, lhs);
+		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+
+		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
+			mpq_init(folds[i]);
+			mpz_tdiv_r(mpq_numref(folds[i]), mpq_numref(folds[lhs]),
+			           mpq_numref(folds[rhs]));
 		}
 		return ni;
 	}

@@ -150,13 +150,11 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		if (!type.issigned && mpq_sgn(ctx.folds[i]) == -1)
 			err("Cannot convert negative value to unsigned type");
 
-		mpz_ptr num, den;
-		num = mpq_numref(ctx.folds[i]);
-		den = mpq_denref(ctx.folds[i]);
-		if (mpz_cmp_ui(den, 1) != 0)
-			err("Invalid integer");
+		if (!MPQ_IS_WHOLE(ctx.folds[i]))
+			err("codegen: Invalid integer");
 
 		int cmp;
+		mpz_ptr num = mpq_numref(ctx.folds[i]);
 		assert(type.size != 0);
 		/* TODO: Can we make the first branch work when the type has the
 		   same size as an unsigned long? */
@@ -243,7 +241,8 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 	case ASTBINADD:
 	case ASTBINSUB:
 	case ASTBINMUL:
-	case ASTBINDIV: {
+	case ASTBINDIV:
+	case ASTBINMOD: {
 		typedef LLVMValueRef llbfn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef,
 		                           const char *);
 		static const struct binop {
