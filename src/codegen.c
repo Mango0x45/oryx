@@ -427,7 +427,6 @@ codegendecl(struct cgctx ctx, idx_t i)
 	/* Non-static, non-undef, mutable */
 
 	LLVMValueRef var, val;
-	/* TODO: Namespace the name */
 	strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 	var = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
 	if (p.rhs == AST_EMPTY) {
