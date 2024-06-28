@@ -53,6 +53,10 @@ enum {
 	   ‘-rhs’ */
 	ASTUNNEG,
 
+	/* Unary complement
+	   ‘~rhs’ */
+	ASTUNCMPL,
+
 	/* NOTE: Ensure that the enumerations defined above this comment do
 	   not exceed 37 — the value of ‘%’ — or they will conflict with the
 	   definitions below. */
@@ -76,6 +80,10 @@ enum {
 	/* Binary modulus
 	   ‘lhs % rhs’ */
 	ASTBINMOD = '%',
+
+	/* Binary xor
+	   ‘lhs ~ rhs’ */
+	ASTBINXOR = '~',
 };
 
 #define AST_EMPTY     ((idx_t)-1)

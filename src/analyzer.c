@@ -309,13 +309,16 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 
 		err("analyzer: Unknown symbol ‘%.*s’", SV_PRI_ARGS(sv));
 	}
+	case ASTUNCMPL:
 	case ASTUNNEG: {
 		idx_t ni, rhs;
 		rhs = ast.kids[i].rhs;
 		ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
 		type_t t = types[rhs];
-		if (t.kind != TYPE_NUM || !t.issigned)
+		if (ast.kinds[i] == ASTUNNEG && (t.kind != TYPE_NUM || !t.issigned))
 			err("analyzer: Unary negation is reserved for signed numeric types");
+		else if (ast.kinds[i] == ASTUNCMPL && (t.kind != TYPE_NUM || t.isfloat))
+			err("analyzer: Unary negation is reserved for numeric integer types");
 		types[i] = t;
 		return ni;
 	}
@@ -323,7 +326,8 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	case ASTBINSUB:
 	case ASTBINMUL:
 	case ASTBINDIV:
-	case ASTBINMOD: {
+	case ASTBINMOD:
+	case ASTBINXOR: {
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
 		rhs = ast.kids[i].rhs;
@@ -338,6 +342,9 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 				err("analyzer: Remainder is not defined for non-integer types");
 			if (types[rhs].kind != TYPE_NUM || types[rhs].isfloat)
 				err("analyzer: Remainder is not defined for non-integer types");
+		} else if (ast.kinds[i] == ASTBINXOR) {
+			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat)
+				err("analyzer: XOR is not defined for non-integer types");
 		}
 
 		/* In the expression ‘x ⋆ y’ where ⋆ is a binary operator, the
@@ -519,6 +526,12 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 			}
 		}
 	}
+	case ASTUNCMPL: {
+		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, ast.kids[i].rhs);
+		if (MPQ_IS_INIT(folds[ast.kids[i].rhs]))
+			err("analyzer: Cannot perform bitwise complement of constant");
+		return ni;
+	}
 	case ASTUNNEG: {
 		idx_t rhs = ast.kids[i].rhs;
 		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
@@ -568,7 +581,14 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		}
 		return ni;
 	}
-	case ASTBINMOD: {
+	case ASTBINMOD:
+	case ASTBINXOR: {
+		static void (*const mpz_fns[UINT8_MAX])(mpz_t, const mpz_t,
+		                                        const mpz_t) = {
+			['%'] = mpz_tdiv_q,
+			['~'] = mpz_xor,
+		};
+
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
 		rhs = ast.kids[i].rhs;
@@ -578,8 +598,8 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 
 		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
 			mpq_init(folds[i]);
-			mpz_tdiv_r(mpq_numref(folds[i]), mpq_numref(folds[lhs]),
-			           mpq_numref(folds[rhs]));
+			mpz_fns[ast.kinds[i]](mpq_numref(folds[i]), mpq_numref(folds[lhs]),
+			                      mpq_numref(folds[rhs]));
 		}
 		return ni;
 	}

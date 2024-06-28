@@ -232,6 +232,13 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "loadtmp");
 		return fwdnode(ctx.ast, i);
 	}
+	case ASTUNCMPL: {
+		LLVMValueRef v, minus_one;
+		minus_one = LLVMConstInt(type2llvm(ctx, ctx.types[i]), -1, false);
+		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs, ctx.types[i], &v);
+		*outv = LLVMBuildXor(ctx.bob, v, minus_one, "cmpltmp");
+		return ni;
+	}
 	case ASTUNNEG: {
 		LLVMValueRef v;
 		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs, ctx.types[i], &v);
@@ -239,10 +246,11 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		return ni;
 	}
 	case ASTBINADD:
-	case ASTBINSUB:
-	case ASTBINMUL:
 	case ASTBINDIV:
-	case ASTBINMOD: {
+	case ASTBINMOD:
+	case ASTBINMUL:
+	case ASTBINSUB:
+	case ASTBINXOR: {
 		typedef LLVMValueRef llbfn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef,
 		                           const char *);
 		static const struct binop {
@@ -250,16 +258,17 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 			const char *name;
 		} binoptbl[UINT8_MAX] = {
 			['+'] = {{LLVMBuildAdd,  LLVMBuildAdd},  "addtmp"},
-			['-'] = {{LLVMBuildSub,  LLVMBuildSub},  "subtmp"},
 			['*'] = {{LLVMBuildMul,  LLVMBuildMul},  "multmp"},
+			['-'] = {{LLVMBuildSub,  LLVMBuildSub},  "subtmp"},
 			['/'] = {{LLVMBuildUDiv, LLVMBuildSDiv}, "divtmp"},
 			['%'] = {{LLVMBuildURem, LLVMBuildSRem}, "remtmp"},
+			['~'] = {{LLVMBuildXor,  LLVMBuildXor},  "xortmp"},
 		};
 
 		LLVMValueRef vl, vr;
 		(void)codegentypedexpr(ctx, ctx.ast.kids[i].lhs, ctx.types[i], &vl);
-		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs,
-		                            ctx.types[i], &vr);
+		idx_t ni = codegentypedexpr(ctx, ctx.ast.kids[i].rhs, ctx.types[i],
+		                            &vr);
 
 		struct binop bo = binoptbl[ctx.ast.kinds[i]];
 		*outv = bo.fn[ctx.types[i].issigned](ctx.bob, vl, vr, bo.name);

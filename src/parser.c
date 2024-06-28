@@ -71,8 +71,10 @@ fwdnode(ast_t ast, idx_t i)
 		case ASTBINMOD:
 		case ASTBINMUL:
 		case ASTBINSUB:
+		case ASTBINXOR:
 		case ASTCDECL:
 		case ASTFN:
+		case ASTUNCMPL:
 		case ASTUNNEG:
 			i = ast.kids[i].rhs;
 			break;
@@ -263,6 +265,10 @@ parseexpratom(ast_t *ast, lexemes_t toks)
 		ast->kinds[i] = ASTUNNEG;
 		ast->kids[i].rhs = parseexpratom(ast, toks);
 		break;
+	case LEXTILDE:
+		ast->kinds[i] = ASTUNCMPL;
+		ast->kids[i].rhs = parseexpratom(ast, toks);
+		break;
 	default:
 		err("parser: Invalid expression leaf");
 	}
@@ -275,9 +281,10 @@ parseexprinc(ast_t *ast, lexemes_t toks, idx_t lhs, int minprec)
 	static const int prectbl[UINT8_MAX] = {
 		['+'] = 1,
 		['-'] = 1,
+		['~'] = 1,
+		['%'] = 2,
 		['*'] = 2,
 		['/'] = 2,
-		['%'] = 2,
 	};
 
 	uint8_t op = toks.kinds[toksidx];
@@ -378,18 +385,18 @@ isfunc(lexemes_t toks)
 
 	if (toks.kinds[toksidx + 1] == LEXRPAR)
 		return true;
-	for (size_t i = toksidx + 1, nst = 1;; i++) {
+	for (size_t i = toksidx + 1;; i++) {
 		switch (toks.kinds[i]) {
-		case LEXLPAR:
-			nst++;
-			break;
-		case LEXRPAR:
-			if (--nst == 0)
-				return false;
-			break;
 		case LEXCOLON:
 			return true;
 		case LEXEOF:
+		case LEXLPAR:
+		case LEXMINUS:
+		case LEXPERC:
+		case LEXPLUS:
+		case LEXRPAR:
+		case LEXSLASH:
+		case LEXSTAR:
 			return false;
 		}
 	}
