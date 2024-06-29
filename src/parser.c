@@ -67,9 +67,11 @@ fwdnode(ast_t ast, idx_t i)
 			i = ast.kids[i].rhs;
 			break;
 		case ASTBINADD:
+		case ASTBINAND:
 		case ASTBINDIV:
 		case ASTBINMOD:
 		case ASTBINMUL:
+		case ASTBINIOR:
 		case ASTBINSHL:
 		case ASTBINSHR:
 		case ASTBINSUB:
@@ -281,14 +283,8 @@ idx_t
 parseexprinc(ast_t *ast, lexemes_t toks, idx_t lhs, int minprec)
 {
 	static const int prectbl[UINT8_MAX + 1] = {
-		['+'] = 1,
-		['-'] = 1,
-		['~'] = 1,
-		['%'] = 2,
-		['*'] = 2,
-		['/'] = 2,
-		[LEXLANGL_DBL] = 2,
-		[LEXRANGL_DBL] = 2,
+		['+'] = 1, ['-'] = 1, ['|'] = 1, ['~'] = 1,          ['%'] = 2,
+		['&'] = 2, ['*'] = 2, ['/'] = 2, [LEXLANGL_DBL] = 2, [LEXRANGL_DBL] = 2,
 	};
 
 	uint8_t op = toks.kinds[toksidx];

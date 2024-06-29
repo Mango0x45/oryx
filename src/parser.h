@@ -81,9 +81,17 @@ enum {
 	   ‘lhs % rhs’ */
 	ASTBINMOD = '%',
 
-	/* Binary xor
+	/* Binary XOR
 	   ‘lhs ~ rhs’ */
 	ASTBINXOR = '~',
+
+	/* Binary bitwise AND
+	   ‘lhs & rhs’ */
+	ASTBINAND = '&',
+
+	/* Binary bitwise OR
+	   ‘lhs & rhs’ */
+	ASTBINIOR = '|',
 
 	/* Binary left shift
 	   ‘lhs << rhs’ */

@@ -216,7 +216,9 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		return ni;
 	}
 	case ASTBINADD:
+	case ASTBINAND:
 	case ASTBINDIV:
+	case ASTBINIOR:
 	case ASTBINMOD:
 	case ASTBINMUL:
 	case ASTBINSHL:
@@ -230,7 +232,9 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 			const char *name;
 		} binoptbl[UINT8_MAX + 1] = {
 			['+']       = {{LLVMBuildAdd,  LLVMBuildAdd},  "add"},
+			['&']       = {{LLVMBuildAnd,  LLVMBuildAnd},  "and"},
 			['*']       = {{LLVMBuildMul,  LLVMBuildMul},  "mul"},
+			['|']       = {{LLVMBuildOr,   LLVMBuildOr},   "ior"},
 			['-']       = {{LLVMBuildSub,  LLVMBuildSub},  "sub"},
 			['/']       = {{LLVMBuildUDiv, LLVMBuildSDiv}, "div"},
 			['%']       = {{LLVMBuildURem, LLVMBuildSRem}, "rem"},

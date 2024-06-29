@@ -330,9 +330,11 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		return ni;
 	}
 	case ASTBINADD:
+	case ASTBINAND:
 	case ASTBINDIV:
 	case ASTBINMOD:
 	case ASTBINMUL:
+	case ASTBINIOR:
 	case ASTBINSHL:
 	case ASTBINSHR:
 	case ASTBINSUB:
@@ -344,24 +346,19 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
 
 		bool isshift = ast.kinds[i] == ASTBINSHL || ast.kinds[i] == ASTBINSHR;
-
 		if (!isshift && !typecompat(types[lhs], types[rhs]))
 			err("analyzer: Binary oprand type mismatch");
 
-		if (ast.kinds[i] == ASTBINMOD) {
-			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat)
-				err("analyzer: Remainder is not defined for non-integer types");
-			if (types[rhs].kind != TYPE_NUM || types[rhs].isfloat)
-				err("analyzer: Remainder is not defined for non-integer types");
-		} else if (ast.kinds[i] == ASTBINXOR) {
-			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat)
-				err("analyzer: XOR is not defined for non-integer types");
-		} else if (isshift) {
-			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat
-			    || types[rhs].kind != TYPE_NUM || types[rhs].isfloat)
-			{
-				err("analyzer: Bit shift is not defined for non-integer types");
-			}
+		static const bool int_only[UINT8_MAX + 1] = {
+			[ASTBINAND] = true, [ASTBINIOR] = true, [ASTBINMOD] = true,
+			[ASTBINSHL] = true, [ASTBINSHR] = true, [ASTBINXOR] = true,
+		};
+
+		if (int_only[ast.kinds[i]]
+		    && (types[lhs].kind != TYPE_NUM || types[lhs].isfloat
+		        || types[rhs].kind != TYPE_NUM || types[rhs].isfloat))
+		{
+			err("analyzer: Operation not defined for non-integer types");
 		}
 
 		/* In the expression ‘x ⋆ y’ where ⋆ is a binary operator, the
@@ -614,11 +611,15 @@ out:
 		}
 		break;
 	}
+	case ASTBINAND:
+	case ASTBINIOR:
 	case ASTBINMOD:
 	case ASTBINXOR: {
 		static void (*const mpz_fns[UINT8_MAX + 1])(mpz_t, const mpz_t,
 		                                            const mpz_t) = {
 			['%'] = mpz_tdiv_q,
+			['&'] = mpz_and,
+			['|'] = mpz_ior,
 			['~'] = mpz_xor,
 		};
 
@@ -630,6 +631,8 @@ out:
 		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
 
 		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
+			assert(MPQ_IS_WHOLE(folds[lhs]));
+			assert(MPQ_IS_WHOLE(folds[rhs]));
 			mpq_init(folds[i]);
 			mpz_fns[ast.kinds[i]](mpq_numref(folds[i]), mpq_numref(folds[lhs]),
 			                      mpq_numref(folds[rhs]));
