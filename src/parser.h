@@ -84,6 +84,14 @@ enum {
 	/* Binary xor
 	   ‘lhs ~ rhs’ */
 	ASTBINXOR = '~',
+
+	/* Binary left shift
+	   ‘lhs << rhs’ */
+	ASTBINSHL = UINT8_MAX - 2,
+
+	/* Binary right shift
+	   ‘lhs >> rhs’ */
+	ASTBINSHR = UINT8_MAX - 0,
 };
 
 #define AST_EMPTY     ((idx_t)-1)

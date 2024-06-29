@@ -70,6 +70,8 @@ fwdnode(ast_t ast, idx_t i)
 		case ASTBINDIV:
 		case ASTBINMOD:
 		case ASTBINMUL:
+		case ASTBINSHL:
+		case ASTBINSHR:
 		case ASTBINSUB:
 		case ASTBINXOR:
 		case ASTCDECL:
@@ -278,13 +280,15 @@ parseexpratom(ast_t *ast, lexemes_t toks)
 idx_t
 parseexprinc(ast_t *ast, lexemes_t toks, idx_t lhs, int minprec)
 {
-	static const int prectbl[UINT8_MAX] = {
+	static const int prectbl[UINT8_MAX + 1] = {
 		['+'] = 1,
 		['-'] = 1,
 		['~'] = 1,
 		['%'] = 2,
 		['*'] = 2,
 		['/'] = 2,
+		[LEXLANGL_DBL] = 2,
+		[LEXRANGL_DBL] = 2,
 	};
 
 	uint8_t op = toks.kinds[toksidx];

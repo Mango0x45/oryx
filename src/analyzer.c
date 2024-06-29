@@ -84,12 +84,17 @@ static void find_unordered_syms(scopes_t *, ast_t, aux_t, lexemes_t, idx_t up,
 	__attribute__((nonnull));
 
 typedef idx_t analyzer(struct azctx, scope_t *, type_t *, ast_t, aux_t,
-                        lexemes_t, idx_t) __attribute__((nonnull));
+                        lexemes_t, idx_t)
+	__attribute__((nonnull));
 typedef idx_t constfolder(struct cfctx, mpq_t *, scope_t *, type_t *, ast_t,
-                           lexemes_t, idx_t) __attribute__((nonnull));
+                           lexemes_t, idx_t)
+	__attribute__((nonnull));
 
 static analyzer analyzeblk, analyzedecl, analyzeexpr, analyzefn, analyzestmt;
-static constfolder constfoldblk, constfolddecl, constfoldexpr, constfoldstmt;
+static constfolder constfoldblk, constfolddecl, constfoldstmt;
+static idx_t constfoldexpr(struct cfctx, mpq_t *, scope_t *, type_t *, ast_t,
+                           lexemes_t, type_t, idx_t)
+	__attribute__((nonnull));
 
 static const type_t *typegrab(ast_t, lexemes_t, idx_t)
 	__attribute__((returns_nonnull));
@@ -316,17 +321,21 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
 		type_t t = types[rhs];
 		if (ast.kinds[i] == ASTUNNEG && (t.kind != TYPE_NUM || !t.issigned))
-			err("analyzer: Unary negation is reserved for signed numeric types");
+			err("analyzer: Unary negation is reserved for signed numeric "
+			    "types");
 		else if (ast.kinds[i] == ASTUNCMPL && (t.kind != TYPE_NUM || t.isfloat))
-			err("analyzer: Unary negation is reserved for numeric integer types");
+			err("analyzer: Unary negation is reserved for numeric integer "
+			    "types");
 		types[i] = t;
 		return ni;
 	}
 	case ASTBINADD:
-	case ASTBINSUB:
-	case ASTBINMUL:
 	case ASTBINDIV:
 	case ASTBINMOD:
+	case ASTBINMUL:
+	case ASTBINSHL:
+	case ASTBINSHR:
+	case ASTBINSUB:
 	case ASTBINXOR: {
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
@@ -334,7 +343,9 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		analyzeexpr(ctx, scps, types, ast, aux, toks, lhs);
 		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
 
-		if (!typecompat(types[lhs], types[rhs]))
+		bool isshift = ast.kinds[i] == ASTBINSHL || ast.kinds[i] == ASTBINSHR;
+
+		if (!isshift && !typecompat(types[lhs], types[rhs]))
 			err("analyzer: Binary oprand type mismatch");
 
 		if (ast.kinds[i] == ASTBINMOD) {
@@ -345,6 +356,12 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		} else if (ast.kinds[i] == ASTBINXOR) {
 			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat)
 				err("analyzer: XOR is not defined for non-integer types");
+		} else if (isshift) {
+			if (types[lhs].kind != TYPE_NUM || types[lhs].isfloat
+			    || types[rhs].kind != TYPE_NUM || types[rhs].isfloat)
+			{
+				err("analyzer: Bit shift is not defined for non-integer types");
+			}
 		}
 
 		/* In the expression ‘x ⋆ y’ where ⋆ is a binary operator, the
@@ -354,9 +371,17 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 
 		   Additionally if both x and y are unsized types but one is a
 		   floating-point type and the other isn’t, the type of the
-		   expression is an unsized floating-point type. */
-		types[i] = types[lhs].size != 0 ? types[lhs] : types[rhs];
-		types[i].isfloat = types[lhs].isfloat || types[rhs].isfloat;
+		   expression is an unsized floating-point type.
+
+		   There is an exception for the left- and right shift operators.
+		   Expressions for these operators always take the type of x, and
+		   y can be any integer type. */
+		if (isshift)
+			types[i] = types[lhs];
+		else {
+			types[i] = types[lhs].size != 0 ? types[lhs] : types[rhs];
+			types[i].isfloat = types[lhs].isfloat || types[rhs].isfloat;
+		}
 		return ni;
 	}
 	case ASTFN:
@@ -417,7 +442,7 @@ constfoldstmt(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		return constfolddecl(ctx, folds, scps, types, ast, toks, i);
 	case ASTRET:
 		return constfoldexpr(ctx, folds, scps, types, ast, toks,
-		                     ast.kids[i].rhs);
+		                     types[i], ast.kids[i].rhs);
 	default:
 		__builtin_unreachable();
 	}
@@ -439,12 +464,17 @@ constfoldblk(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 
 idx_t
 constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
-              ast_t ast, lexemes_t toks, idx_t i)
+              ast_t ast, lexemes_t toks, type_t T, idx_t i)
 {
 	if (MPQ_IS_INIT(folds[i]))
 		return fwdnode(ast, i);
 
+	idx_t ni;
+
 	switch (ast.kinds[i]) {
+	case ASTFN:
+		return constfoldblk(ctx, folds, scps, types, ast, toks,
+		                    ast.kids[i].rhs);
 	case ASTNUMLIT: {
 		mpq_init(folds[i]);
 
@@ -485,7 +515,8 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 				mpq_set_str(folds[i], buf, 10);
 			assert(ret == 0);
 		}
-		return fwdnode(ast, i);
+		ni = fwdnode(ast, i);
+		break;
 	}
 	case ASTIDENT: {
 		strview_t sv = toks.strs[ast.lexemes[i]];
@@ -504,7 +535,7 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 			} else {
 				switch (ast.kinds[sym->i]) {
 				case ASTDECL:
-					break;
+					return fwdnode(ast, i);
 				case ASTCDECL: {
 					idx_t expr = ast.kids[sym->i].rhs;
 					assert(expr != AST_EMPTY);
@@ -516,37 +547,39 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 						MPQCPY(folds[i], folds[expr]);
 						assert(MPQ_IS_INIT(folds[i]));
 					}
-					break;
+					ni = fwdnode(ast, i);
+					goto out;
 				}
 				default:
 					__builtin_unreachable();
 				}
-
-				return fwdnode(ast, i);
 			}
 		}
+out:
+		break;
 	}
 	case ASTUNCMPL: {
-		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, ast.kids[i].rhs);
+		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i],
+		                   ast.kids[i].rhs);
 		if (MPQ_IS_INIT(folds[ast.kids[i].rhs]))
 			err("analyzer: Cannot perform bitwise complement of constant");
-		return ni;
+		break;
 	}
 	case ASTUNNEG: {
 		idx_t rhs = ast.kids[i].rhs;
-		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
 		mpq_t *x = folds + rhs;
 		if (MPQ_IS_INIT(*x)) {
 			MPQCPY(folds[i], *x);
 			mpq_neg(folds[i], folds[i]);
 		}
-		return ni;
+		break;
 	}
 	case ASTBINADD:
 	case ASTBINSUB:
 	case ASTBINMUL: {
-		static void (*const mpq_fns[UINT8_MAX])(mpq_t, const mpq_t,
-		                                        const mpq_t) = {
+		static void (*const mpq_fns[UINT8_MAX + 1])(mpq_t, const mpq_t,
+		                                            const mpq_t) = {
 			['+'] = mpq_add,
 			['-'] = mpq_sub,
 			['*'] = mpq_mul,
@@ -554,21 +587,21 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
 		rhs = ast.kids[i].rhs;
-		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, lhs);
-		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], lhs);
+		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
 		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
 			mpq_init(folds[i]);
 			mpq_fns[ast.kinds[i]](folds[i], folds[lhs], folds[rhs]);
 		}
-		return ni;
+		break;
 	}
 	case ASTBINDIV: {
 		idx_t lhs, rhs;
 		lhs = ast.kids[i].lhs;
 		rhs = ast.kids[i].rhs;
 
-		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, lhs);
-		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], lhs);
+		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
 
 		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
 			mpq_init(folds[i]);
@@ -579,12 +612,12 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 				           mpq_numref(folds[rhs]));
 			}
 		}
-		return ni;
+		break;
 	}
 	case ASTBINMOD:
 	case ASTBINXOR: {
-		static void (*const mpz_fns[UINT8_MAX])(mpz_t, const mpz_t,
-		                                        const mpz_t) = {
+		static void (*const mpz_fns[UINT8_MAX + 1])(mpz_t, const mpz_t,
+		                                            const mpz_t) = {
 			['%'] = mpz_tdiv_q,
 			['~'] = mpz_xor,
 		};
@@ -593,22 +626,82 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 		lhs = ast.kids[i].lhs;
 		rhs = ast.kids[i].rhs;
 
-		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, lhs);
-		idx_t ni = constfoldexpr(ctx, folds, scps, types, ast, toks, rhs);
+		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], lhs);
+		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
 
 		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
 			mpq_init(folds[i]);
 			mpz_fns[ast.kinds[i]](mpq_numref(folds[i]), mpq_numref(folds[lhs]),
 			                      mpq_numref(folds[rhs]));
 		}
-		return ni;
+		break;
 	}
-	case ASTFN:
-		return constfoldblk(ctx, folds, scps, types, ast, toks,
-		                    ast.kids[i].rhs);
+	case ASTBINSHL:
+	case ASTBINSHR: {
+		static void (*const mpz_fns[UINT8_MAX + 1])(mpz_t, const mpz_t,
+		                                            mp_bitcnt_t) = {
+			[ASTBINSHL] = mpz_mul_2exp,
+			[ASTBINSHR] = mpz_tdiv_q_2exp,
+		};
+
+		idx_t lhs, rhs;
+		lhs = ast.kids[i].lhs;
+		rhs = ast.kids[i].rhs;
+
+		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[lhs], lhs);
+		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[rhs], rhs);
+
+		if (MPQ_IS_INIT(folds[rhs])) {
+			if (mpq_sgn(folds[rhs]) == -1)
+				err("analyzer: Cannot shift by negative value");
+		}
+
+		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
+			mpz_ptr cur_z, lhs_z, rhs_z;
+			cur_z = mpq_numref(folds[i]);
+			lhs_z = mpq_numref(folds[lhs]);
+			rhs_z = mpq_numref(folds[rhs]);
+
+			mpq_init(folds[i]);
+			if (mpz_cmp_ui(rhs_z, ULONG_MAX) > 0)
+				err("analyzer: Shift oprand too large");
+			mp_bitcnt_t shftcnt = mpz_get_ui(rhs_z);
+			mpz_fns[ast.kinds[i]](cur_z, lhs_z, shftcnt);
+		}
+		break;
+	}
 	default:
 		__builtin_unreachable();
 	}
+
+	if (MPQ_IS_INIT(folds[i]) && !T.issigned && mpq_sgn(folds[i]) == -1)
+		err("analyzer: Cannot convert negative value to unsigned type");
+
+	if (T.size != 0 && !T.isfloat && MPQ_IS_INIT(folds[i])) {
+		if (!MPQ_IS_WHOLE(folds[i]))
+			err("analyzer: Invalid integer");
+
+		int cmp;
+		mpz_ptr num = mpq_numref(folds[i]);
+		/* TODO: Can we make the first branch work when the type has the
+		   same size as an unsigned long? */
+		if (T.size < sizeof(unsigned long)) {
+			unsigned long x = 1UL << (T.size * 8 - T.issigned);
+			cmp = mpz_cmp_ui(num, x - 1);
+		} else {
+			mpz_t x;
+			mp_bitcnt_t bits = T.size * 8 - T.issigned;
+			mpz_init_set_ui(x, 1);
+			mpz_mul_2exp(x, x, bits);
+			mpz_sub_ui(x, x, 1);
+			cmp = mpz_cmp(num, x);
+			mpz_clear(x);
+		}
+		if (cmp > 0)
+			err("analyzer: Integer too large for datatype");
+	}
+
+	return ni;
 }
 
 idx_t
@@ -618,7 +711,8 @@ constfolddecl(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 	if (ast.kids[i].rhs == AST_EMPTY)
 		return fwdnode(ast, i);
 	ctx.decl = toks.strs[ast.lexemes[i]];
-	return constfoldexpr(ctx, folds, scps, types, ast, toks, ast.kids[i].rhs);
+	return constfoldexpr(ctx, folds, scps, types, ast, toks, types[i],
+	                     ast.kids[i].rhs);
 }
 
 void
