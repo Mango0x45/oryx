@@ -36,10 +36,19 @@ typedef struct {
 } scopes_t;
 
 struct azctx {
-	arena_t *a;
+	arena_t   *a;
+	scratch_t *s;
+
+	ast_t      ast;
+	aux_t      aux;
+	lexemes_t  toks;
+	mpq_t     *folds;
+	scopes_t   scps;
+	type_t   **types;
+	typetab_t *ttab;
 
 	/* The return type of the function being analyzed */
-	type_t fnret;
+	type_t *fnret;
 
 	/* The name of the symbol being declared.  This is necessary to allow
 	   for ‘X :: X’ to be treated as shadowing and not a circular
@@ -54,229 +63,275 @@ struct azctx {
 	bool chkrets;
 };
 
-struct cfctx {
-	arena_t *a;
-	scratch_t *s;
-	strview_t decl;
-	idx_t si;
-};
-
 /* Perform static analysis over the AST */
-static void analyzeast(scope_t *, type_t *, ast_t, aux_t, lexemes_t, arena_t *)
+static void analyzeast(struct azctx *)
 	__attribute__((nonnull));
 
 /* Perform constant folding over the AST */
-static void constfold(mpq_t *, scope_t *, type_t *, ast_t, lexemes_t, arena_t *,
-                      scratch_t *)
+static void constfold(struct azctx *)
 	__attribute__((nonnull));
 
-/* Perform a pass over the entire AST and return an array of symbol
-   tables, one for each scope in the program */
-static scope_t *gensymtabs(ast_t, aux_t, lexemes_t, arena_t *)
-	__attribute__((returns_nonnull, nonnull));
+/* Perform a pass over the entire AST and generate an array of symbol
+   tables, one for each scope in the program.  These tables are stored in
+   the provided CTX. */
+static void gensymtabs(struct azctx *ctx)
+	__attribute__((nonnull));
 
 /* Find all the unordered symbols in the scope delimited by the inclusive
    indicies BEG and END in the AST, and accumulate them into a symbol
    table appended to the symbol table list.  UP is the index of the
    previous scopes symbol table in the symbol table list. */
-static void find_unordered_syms(scopes_t *, ast_t, aux_t, lexemes_t, idx_t up,
-                                idx_t beg, idx_t end, arena_t *)
+static void find_unordered_syms(struct azctx *, idx_t up, idx_t beg, idx_t end);
+
+typedef idx_t analyzer(struct azctx *, idx_t)
+	__attribute__((nonnull));
+static analyzer analyzeblk, analyzedecl, analyzeexpr, analyzefn, analyzestmt,
+	constfoldblk, constfolddecl, constfoldstmt;
+
+/* Perform constant-folding on the expression at index I in the AST, and
+   assert that the resulting constant can be represented by type T. */
+static idx_t constfoldexpr(struct azctx *, type_t *T, idx_t i)
 	__attribute__((nonnull));
 
-typedef idx_t analyzer(struct azctx, scope_t *, type_t *, ast_t, aux_t,
-                        lexemes_t, idx_t)
-	__attribute__((nonnull));
-typedef idx_t constfolder(struct cfctx, mpq_t *, scope_t *, type_t *, ast_t,
-                           lexemes_t, idx_t)
+/* Assert if the types T1 and T2 are compatible with each other */
+static bool typecompat(type_t *t1, type_t *t2)
 	__attribute__((nonnull));
 
-static analyzer analyzeblk, analyzedecl, analyzeexpr, analyzefn, analyzestmt;
-static constfolder constfoldblk, constfolddecl, constfoldstmt;
-static idx_t constfoldexpr(struct cfctx, mpq_t *, scope_t *, type_t *, ast_t,
-                           lexemes_t, type_t, idx_t)
-	__attribute__((nonnull));
+/* Check if the statement at node I in the AST returns from the function */
+static bool returns(ast_t, idx_t i);
 
-static const type_t *typegrab(ast_t, lexemes_t, idx_t)
-	__attribute__((returns_nonnull));
-static bool typecompat(type_t, type_t);
-static bool returns(ast_t, idx_t);
+enum {
+	PRIM_INT8,
+	PRIM_INT16,
+	PRIM_INT32,
+	PRIM_INT64,
+	PRIM_INT128,
+	PRIM_INT,
 
-/* Defined in primitives.gperf */
-const type_t *typelookup(const uchar *, size_t)
-	__attribute__((nonnull));
+	PRIM_UINT8,
+	PRIM_UINT16,
+	PRIM_UINT32,
+	PRIM_UINT64,
+	PRIM_UINT128,
+	PRIM_UINT,
 
-void
-analyzeprog(ast_t ast, aux_t aux, lexemes_t toks, arena_t *a, type_t **types,
-            scope_t **scps, mpq_t **folds)
+	PRIM_RUNE,
+
+	PRIM_F16,
+	PRIM_F32,
+	PRIM_F64,
+	PRIM_F128,
+
+	_PRIM_CNT,
+};
+
+static struct {
+	strview_t name;
+	type_t t;
+} primitives[] = {
+	[PRIM_INT]     = {SVC("int"),  {.kind = TYPE_NUM, .size =  8, .issigned = true}},
+	[PRIM_INT8]    = {SVC("i8"),   {.kind = TYPE_NUM, .size =  1, .issigned = true}},
+	[PRIM_INT16]   = {SVC("i16"),  {.kind = TYPE_NUM, .size =  2, .issigned = true}},
+	[PRIM_INT32]   = {SVC("i32"),  {.kind = TYPE_NUM, .size =  4, .issigned = true}},
+	[PRIM_INT64]   = {SVC("i64"),  {.kind = TYPE_NUM, .size =  8, .issigned = true}},
+	[PRIM_INT128]  = {SVC("i128"), {.kind = TYPE_NUM, .size = 16, .issigned = true}},
+
+	[PRIM_UINT]    = {SVC("uint"), {.kind = TYPE_NUM, .size =  8}},
+	[PRIM_UINT8]   = {SVC("u8"),   {.kind = TYPE_NUM, .size =  1}},
+	[PRIM_UINT16]  = {SVC("u16"),  {.kind = TYPE_NUM, .size =  2}},
+	[PRIM_UINT32]  = {SVC("u32"),  {.kind = TYPE_NUM, .size =  4}},
+	[PRIM_UINT64]  = {SVC("u64"),  {.kind = TYPE_NUM, .size =  8}},
+	[PRIM_UINT128] = {SVC("u128"), {.kind = TYPE_NUM, .size = 16}},
+
+	[PRIM_RUNE]    = {SVC("rune"), {.kind = TYPE_NUM, .size = 4, .issigned = true}},
+
+	[PRIM_F16]     = {SVC("f16"),  {.kind = TYPE_NUM, .size =  2, .isfloat = true}},
+	[PRIM_F32]     = {SVC("f32"),  {.kind = TYPE_NUM, .size =  4, .isfloat = true}},
+	[PRIM_F64]     = {SVC("f64"),  {.kind = TYPE_NUM, .size =  8, .isfloat = true}},
+	[PRIM_F128]    = {SVC("f128"), {.kind = TYPE_NUM, .size = 16, .isfloat = true}},
+};
+
+static type_t NOT_CHECKED = {.kind = TYPE_CHECKING};
+static type_t UNTYPED_INT = {.kind = TYPE_NUM, .size = 0};
+static type_t UNTYPED_FLT = {.kind = TYPE_NUM, .size = 0, .isfloat = true};
+
+type_t **
+analyzeprog(ast_t ast, aux_t aux, lexemes_t toks, arena_t *a, scope_t **scps,
+            mpq_t **folds)
 {
-	if ((*types = calloc(ast.len, sizeof(**types))) == NULL)
-		err("calloc:");
-
-	*scps = gensymtabs(ast, aux, toks, a);
-	analyzeast(*scps, *types, ast, aux, toks, a);
-
-	scratch_t s = {0};
-	if ((*folds = calloc(ast.len, sizeof(**folds))) == NULL)
-		err("calloc:");
-	constfold(*folds, *scps, *types, ast, toks, a, &s);
-}
-
-scope_t *
-gensymtabs(ast_t ast, aux_t aux, lexemes_t toks, arena_t *a)
-{
-	scopes_t scps = {.cap = 32};
-	scps.buf = bufalloc(NULL, scps.cap, sizeof(*scps.buf));
-	find_unordered_syms(&scps, ast, aux, toks, 0, 0, ast.len - 1, a);
-	return scps.buf;
-}
-
-void
-find_unordered_syms(scopes_t *scps, ast_t ast, aux_t aux, lexemes_t toks,
-                    idx_t up, idx_t beg, idx_t end, arena_t *a)
-{
-	if (scps->len == scps->cap) {
-		scps->cap *= 2;
-		scps->buf = bufalloc(scps->buf, scps->cap, sizeof(*scps->buf));
-	}
-
-	scope_t *scp = scps->buf + scps->len++;
-	*scp = (scope_t){
-		.i = beg,
-		.up = up,
-		.map = NULL,
+	struct azctx ctx = {
+		.a = a,
+		.s = &(scratch_t){0},
+		.ast = ast,
+		.aux = aux,
+		.toks = toks,
 	};
 
+	for (size_t i = 0; i < lengthof(primitives); i++) {
+		*typetab_insert(&ctx.ttab, primitives[i].name, a) =
+			(type_t *)&primitives[i].t;
+	}
+
+	if ((ctx.types = calloc(ctx.ast.len, sizeof(*ctx.types))) == NULL)
+		err("calloc:");
+
+	gensymtabs(&ctx);
+	analyzeast(&ctx);
+
+	if ((ctx.folds = calloc(ctx.ast.len, sizeof(**ctx.folds))) == NULL)
+		err("calloc:");
+	constfold(&ctx);
+	*scps = ctx.scps.buf;
+	*folds = ctx.folds;
+	return ctx.types;
+}
+
+void
+gensymtabs(struct azctx *ctx)
+{
+	ctx->scps.cap = 32;
+	ctx->scps.buf = bufalloc(NULL, ctx->scps.cap, sizeof(*ctx->scps.buf));
+	find_unordered_syms(ctx, 0, 0, ctx->ast.len - 1);
+}
+
+void
+find_unordered_syms(struct azctx *ctx, idx_t up, idx_t beg, idx_t end)
+{
+	if (ctx->scps.len == ctx->scps.cap) {
+		ctx->scps.cap *= 2;
+		ctx->scps.buf = bufalloc(ctx->scps.buf, ctx->scps.cap,
+		                         sizeof(*ctx->scps.buf));
+	}
+
+	scope_t *scp = ctx->scps.buf + ctx->scps.len++;
+	*scp = (scope_t){.i = beg, .up = up};
+
 	for (idx_t i = beg; likely(i <= end); i++) {
-		bool isstatic = ast.kinds[i] <= _AST_DECLS_END
-		             && aux.buf[ast.kids[i].lhs].decl.isstatic;
-		bool isconst = ast.kinds[i] == ASTCDECL;
+		bool isstatic = ctx->ast.kinds[i] <= _AST_DECLS_END
+		             && ctx->aux.buf[ctx->ast.kids[i].lhs].decl.isstatic;
+		bool isconst = ctx->ast.kinds[i] == ASTCDECL;
 
 		if (isstatic || isconst) {
-			strview_t sv = toks.strs[ast.lexemes[i]];
-			symval_t *p = symtab_insert(&scp->map, sv, a);
+			strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
+			symval_t *p = symtab_insert(&scp->map, sv, ctx->a);
 			if (p->exists) {
 				err("analyzer: Symbol ‘%.*s’ declared multiple times",
 				    SV_PRI_ARGS(sv));
 			}
 			p->i = i;
 			p->exists = true;
-		} else if (ast.kinds[i] == ASTBLK) {
-			pair_t p = ast.kids[i];
-			find_unordered_syms(scps, ast, aux, toks, beg, p.lhs, p.rhs, a);
+		} else if (ctx->ast.kinds[i] == ASTBLK) {
+			pair_t p = ctx->ast.kids[i];
+			find_unordered_syms(ctx, beg, p.lhs, p.rhs);
 			i = p.rhs;
 		}
 	}
 }
 
-const type_t *
-typegrab(ast_t ast, lexemes_t toks, idx_t i)
-{
-	strview_t sv = toks.strs[ast.lexemes[i]];
-	const type_t *tp = typelookup(sv.p, sv.len);
-	if (tp == NULL)
-		err("analyzer: Unknown type ‘%.*s’", (int)sv.len, sv.p);
-	return tp;
-}
-
 void
-analyzeast(scope_t *scps, type_t *types, ast_t ast, aux_t aux, lexemes_t toks,
-           arena_t *a)
+analyzeast(struct azctx *ctx)
 {
-	struct azctx ctx = {.a = a};
-	for (idx_t i = 0; likely(i < ast.len); i = fwdnode(ast, i)) {
-		assert(ast.kinds[i] <= _AST_DECLS_END);
-		analyzedecl(ctx, scps, types, ast, aux, toks, i);
+	for (idx_t i = 0; likely(i < ctx->ast.len); i = fwdnode(ctx->ast, i)) {
+		assert(ctx->ast.kinds[i] <= _AST_DECLS_END);
+		(void)analyzedecl(ctx, i);
 	}
 }
 
 idx_t
-analyzedecl(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
-            aux_t aux, lexemes_t toks, idx_t i)
+analyzedecl(struct azctx *ctx, idx_t i)
 {
-	strview_t sv = toks.strs[ast.lexemes[i]];
+	strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
 
-	bool isconst = ast.kinds[i] == ASTCDECL;
-	bool isundef = aux.buf[ast.kids[i].lhs].decl.isundef;
-	bool isstatic = ast.kinds[i] <= _AST_DECLS_END
-		&& aux.buf[ast.kids[i].lhs].decl.isstatic;
+	bool isconst = ctx->ast.kinds[i] == ASTCDECL;
+	bool isundef = ctx->aux.buf[ctx->ast.kids[i].lhs].decl.isundef;
+	bool isstatic = ctx->ast.kinds[i] <= _AST_DECLS_END
+	             && ctx->aux.buf[ctx->ast.kids[i].lhs].decl.isstatic;
 
 	if (isstatic && isundef)
 		err("analyzer: Static variables may not be undefined");
 
 	if (!isconst && !isstatic) {
-		symval_t *sym = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
+		symval_t *sym = symtab_insert(&ctx->scps.buf[ctx->si].map, sv, ctx->a);
 		if (sym->exists) {
 			err("analyzer: Variable ‘%.*s’ declared multiple times",
 			    SV_PRI_ARGS(sv));
 		} else {
+			printf("inserted %.*s\n", SV_PRI_ARGS(sv));
 			sym->i = i;
 			sym->exists = true;
 		}
 	}
 
-	types[i].kind = TYPE_CHECKING;
+	ctx->types[i] = &NOT_CHECKED;
 
-	pair_t p = ast.kids[i];
-	type_t ltype = {0}, rtype = {0};
+	pair_t p = ctx->ast.kids[i];
+	type_t *ltype, *rtype;
+	ltype = rtype = NULL;
 
-	idx_t typeidx = aux.buf[p.lhs].decl.type;
+	idx_t typeidx = ctx->aux.buf[p.lhs].decl.type;
 	assert(typeidx != AST_EMPTY || p.rhs != AST_EMPTY);
 
 	idx_t ni;
 
-	if (typeidx != AST_EMPTY)
-		ltype = *typegrab(ast, toks, typeidx);
+	if (typeidx != AST_EMPTY) {
+		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[typeidx]];
+		type_t **t = typetab_insert(&ctx->ttab, sv, NULL);
+		if (t == NULL)
+			err("analyzer: Undeclared type ‘%.*s’", SV_PRI_ARGS(sv));
+		ltype = *t;
+	}
 	if (p.rhs != AST_EMPTY) {
-		ctx.decl = sv;
-		ni = analyzeexpr(ctx, scps, types, ast, aux, toks, p.rhs);
-		rtype = types[p.rhs];
+		struct azctx nctx = *ctx;
+		nctx.decl = sv;
+		ni = analyzeexpr(&nctx, p.rhs);
+		rtype = ctx->types[p.rhs];
 	} else
-		ni = fwdnode(ast, i);
+		ni = fwdnode(ctx->ast, i);
 
-	if (ltype.kind == TYPE_UNSET) {
+	if (ltype == NULL) {
 		ltype = rtype;
-		if (ast.kinds[i] == ASTDECL && rtype.size == 0)
-			ltype.size = 8;
-	} else if (!typecompat(ltype, rtype))
+		if (ctx->ast.kinds[i] == ASTDECL && rtype->size == 0)
+			ltype = &primitives[rtype == &UNTYPED_INT ? PRIM_INT : PRIM_F64].t;
+	} else if (rtype != NULL && !typecompat(ltype, rtype))
 		err("analyzer: Type mismatch");
 
-	types[i] = ltype;
+	ctx->types[i] = ltype;
 	return ni;
 }
 
 idx_t
-analyzestmt(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
-            aux_t aux, lexemes_t toks, idx_t i)
+analyzestmt(struct azctx *ctx, idx_t i)
 {
-	switch (ast.kinds[i]) {
+	switch (ctx->ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return analyzedecl(ctx, scps, types, ast, aux, toks, i);
+		return analyzedecl(ctx, i);
 	case ASTASIGN: {
-		pair_t p = ast.kids[i];
-		(void)analyzeexpr(ctx, scps, types, ast, aux, toks, p.lhs);
+		pair_t p = ctx->ast.kids[i];
+		(void)analyzeexpr(ctx, p.lhs);
 		/* TODO: Allow assignments to expressions returning pointer types */
-		if (ast.kinds[p.lhs] != ASTIDENT)
+		if (ctx->ast.kinds[p.lhs] != ASTIDENT)
 			err("analyzer: Assignments may only be made to identifiers");
-		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, p.rhs);
-		if (!typecompat(types[p.lhs], types[p.rhs]))
+		idx_t ni = analyzeexpr(ctx, p.rhs);
+		if (!typecompat(ctx->types[p.lhs], ctx->types[p.rhs]))
 			err("analyzer: Assignment type mismatch");
-		types[i] = types[p.lhs];
+		ctx->types[i] = ctx->types[p.lhs];
 		return ni;
 	}
 	case ASTRET: {
-		idx_t expr = ast.kids[i].rhs;
+		idx_t expr = ctx->ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
-			if (ctx.fnret.kind != TYPE_UNSET)
+			if (ctx->fnret->kind != TYPE_UNSET)
 				err("analyzer: Missing return value");
 			return i + 1;
-		} else if (ctx.fnret.kind == TYPE_UNSET)
+		} else if (ctx->fnret->kind == TYPE_UNSET)
 			err("analyzer: Function has no return value");
 
-		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, expr);
-		if (!typecompat(ctx.fnret, types[expr]))
+		idx_t ni = analyzeexpr(ctx, expr);
+		printf("%p %p\n", (void *)ctx->fnret, (void *)ctx->types[expr]);
+		if (!typecompat(ctx->fnret, ctx->types[expr]))
 			err("analyzer: Return type mismatch");
-		types[i] = ctx.fnret;
+		ctx->types[i] = ctx->fnret;
 		return ni;
 	}
 	default:
@@ -285,27 +340,28 @@ analyzestmt(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 }
 
 idx_t
-analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
-            aux_t aux, lexemes_t toks, idx_t i)
+analyzeexpr(struct azctx *ctx, idx_t i)
 {
-	switch (ast.kinds[i]) {
+	/* Create local copy */
+	struct azctx nctx = *ctx;
+	ctx = &nctx;
+
+	switch (ctx->ast.kinds[i]) {
 	case ASTNUMLIT: {
-		strview_t sv = toks.strs[ast.lexemes[i]];
-		types[i].kind = TYPE_NUM;
-		types[i].size = 0;
-		types[i].issigned = true;
-		types[i].isfloat = memchr(sv.p, '.', sv.len) != NULL;
-		return fwdnode(ast, i);
+		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
+		ctx->types[i] = memchr(sv.p, '.', sv.len) != NULL ? &UNTYPED_FLT
+		                                                  : &UNTYPED_INT;
+		return fwdnode(ctx->ast, i);
 	}
 	case ASTIDENT: {
-		strview_t sv = toks.strs[ast.lexemes[i]];
+		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
 
 		/* Variable shadowing */
-		if (strview_eq(sv, ctx.decl) && ctx.si > 0)
-			ctx.si--;
+		if (strview_eq(sv, ctx->decl) && ctx->si > 0)
+			ctx->si--;
 
-		for (idx_t lvl = ctx.si;;) {
-			scope_t scp = scps[lvl];
+		for (idx_t lvl = ctx->si;;) {
+			scope_t scp = ctx->scps.buf[lvl];
 			symval_t *sym = symtab_insert(&scp.map, sv, NULL);
 
 			if (sym == NULL) {
@@ -313,18 +369,18 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 					break;
 				lvl = scp.up;
 			} else {
-				switch (types[sym->i].kind) {
+				switch (ctx->types[sym->i]->kind) {
 				case TYPE_UNSET:
-					ctx.si = lvl;
-					analyzedecl(ctx, scps, types, ast, aux, toks, sym->i);
+					ctx->si = lvl;
+					(void)analyzedecl(ctx, sym->i);
 					break;
 				case TYPE_CHECKING:
 					err("analyzer: Circular definition of ‘%.*s’",
 					    SV_PRI_ARGS(sv));
 				}
 
-				types[i] = types[sym->i];
-				return fwdnode(ast, i);
+				ctx->types[i] = ctx->types[sym->i];
+				return fwdnode(ctx->ast, i);
 			}
 		}
 
@@ -333,16 +389,21 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	case ASTUNCMPL:
 	case ASTUNNEG: {
 		idx_t ni, rhs;
-		rhs = ast.kids[i].rhs;
-		ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
-		type_t t = types[rhs];
-		if (ast.kinds[i] == ASTUNNEG && (t.kind != TYPE_NUM || !t.issigned))
+		rhs = ctx->ast.kids[i].rhs;
+		ni = analyzeexpr(ctx, rhs);
+		type_t *t = ctx->types[rhs];
+		if (ctx->ast.kinds[i] == ASTUNNEG
+		    && (t->kind != TYPE_NUM || !t->issigned))
+		{
 			err("analyzer: Unary negation is reserved for signed numeric "
 			    "types");
-		else if (ast.kinds[i] == ASTUNCMPL && (t.kind != TYPE_NUM || t.isfloat))
+		} else if (ctx->ast.kinds[i] == ASTUNCMPL
+		           && (t->kind != TYPE_NUM || t->isfloat))
+		{
 			err("analyzer: Unary negation is reserved for numeric integer "
 			    "types");
-		types[i] = t;
+		}
+		ctx->types[i] = t;
 		return ni;
 	}
 	case ASTBINADD:
@@ -356,13 +417,14 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	case ASTBINSUB:
 	case ASTBINXOR: {
 		idx_t lhs, rhs;
-		lhs = ast.kids[i].lhs;
-		rhs = ast.kids[i].rhs;
-		analyzeexpr(ctx, scps, types, ast, aux, toks, lhs);
-		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, rhs);
+		lhs = ctx->ast.kids[i].lhs;
+		rhs = ctx->ast.kids[i].rhs;
+		(void)analyzeexpr(ctx, lhs);
+		idx_t ni = analyzeexpr(ctx, rhs);
 
-		bool isshift = ast.kinds[i] == ASTBINSHL || ast.kinds[i] == ASTBINSHR;
-		if (!isshift && !typecompat(types[lhs], types[rhs]))
+		bool isshift = ctx->ast.kinds[i] == ASTBINSHL
+		            || ctx->ast.kinds[i] == ASTBINSHR;
+		if (!isshift && !typecompat(ctx->types[lhs], ctx->types[rhs]))
 			err("analyzer: Binary oprand type mismatch");
 
 		static const bool int_only[UINT8_MAX + 1] = {
@@ -370,9 +432,10 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 			[ASTBINSHL] = true, [ASTBINSHR] = true, [ASTBINXOR] = true,
 		};
 
-		if (int_only[ast.kinds[i]]
-		    && (types[lhs].kind != TYPE_NUM || types[lhs].isfloat
-		        || types[rhs].kind != TYPE_NUM || types[rhs].isfloat))
+		if (int_only[ctx->ast.kinds[i]]
+		    && (ctx->types[lhs]->kind != TYPE_NUM || ctx->types[lhs]->isfloat
+		        || ctx->types[rhs]->kind != TYPE_NUM
+		        || ctx->types[rhs]->isfloat))
 		{
 			err("analyzer: Operation not defined for non-integer types");
 		}
@@ -390,54 +453,66 @@ analyzeexpr(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 		   Expressions for these operators always take the type of x, and
 		   y can be any integer type. */
 		if (isshift)
-			types[i] = types[lhs];
+			ctx->types[i] = ctx->types[lhs];
 		else {
-			types[i] = types[lhs].size != 0 ? types[lhs] : types[rhs];
-			types[i].isfloat = types[lhs].isfloat || types[rhs].isfloat;
+			ctx->types[i] = ctx->types[lhs]->size != 0 ? ctx->types[lhs]
+			                                           : ctx->types[rhs];
+			ctx->types[i]->isfloat = ctx->types[lhs]->isfloat
+			                      || ctx->types[rhs]->isfloat;
 		}
 		return ni;
 	}
 	case ASTFN:
-		return analyzefn(ctx, scps, types, ast, aux, toks, i);
+		return analyzefn(ctx, i);
 	default:
 		__builtin_unreachable();
 	}
 }
 
 idx_t
-analyzefn(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast, aux_t aux,
-          lexemes_t toks, idx_t i)
+analyzefn(struct azctx *ctx, idx_t i)
 {
 	type_t t = {.kind = TYPE_FN};
-	pair_t p = ast.kids[i];
+	pair_t p = ctx->ast.kids[i];
+
+	/* Create local copy */
+	struct azctx nctx = *ctx;
+	ctx = &nctx;
 
 	idx_t proto = p.lhs;
-	if (ast.kids[proto].rhs != AST_EMPTY) {
-		t.ret = typegrab(ast, toks, ast.kids[proto].rhs);
-		ctx.fnret = *t.ret;
-		ctx.chkrets = true;
+	idx_t ret = ctx->ast.kids[proto].rhs;
+	if (ret != AST_EMPTY) {
+		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[ret]];
+		type_t **p = typetab_insert(&ctx->ttab, sv, NULL);
+		if (p == NULL)
+			err("analyzer: Undeclared type ‘%.*s’", SV_PRI_ARGS(sv));
+		ctx->fnret = t.ret = *p;
+		ctx->chkrets = true;
 	} else
-		ctx.fnret.kind = TYPE_UNSET;
-	types[i] = t;
-	return analyzeblk(ctx, scps, types, ast, aux, toks, p.rhs);
+		ctx->fnret = NULL;
+	*(ctx->types[i] = arena_new(ctx->a, type_t, 1)) = t;
+	return analyzeblk(ctx, p.rhs);
 }
 
 idx_t
-analyzeblk(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast, aux_t aux,
-           lexemes_t toks, idx_t i)
+analyzeblk(struct azctx *ctx, idx_t i)
 {
-	pair_t p = ast.kids[i];
+	/* Create local copy */
+	struct azctx nctx = *ctx;
+	ctx = &nctx;
 
-	while (scps[ctx.si].i != p.lhs)
-		ctx.si++;
+	pair_t p = ctx->ast.kids[i];
 
-	bool chkrets = ctx.chkrets, hasret = false;
-	ctx.chkrets = false;
+	while (ctx->scps.buf[ctx->si].i != p.lhs)
+		ctx->si++;
+
+	bool chkrets = ctx->chkrets, hasret = false;
+	ctx->chkrets = false;
 
 	for (i = p.lhs; i <= p.rhs;) {
-		if (chkrets && returns(ast, i))
+		if (chkrets && returns(ctx->ast, i))
 			hasret = true;
-		i = analyzestmt(ctx, scps, types, ast, aux, toks, i);
+		i = analyzestmt(ctx, i);
 	}
 	if (chkrets && !hasret)
 		err("analyzer: Function doesn’t return on all paths");
@@ -446,54 +521,52 @@ analyzeblk(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast, aux_t aux,
 }
 
 idx_t
-constfoldstmt(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
-              ast_t ast, lexemes_t toks, idx_t i)
+constfoldstmt(struct azctx *ctx, idx_t i)
 {
-	switch (ast.kinds[i]) {
+	switch (ctx->ast.kinds[i]) {
 	case ASTDECL:
 	case ASTCDECL:
-		return constfolddecl(ctx, folds, scps, types, ast, toks, i);
+		return constfolddecl(ctx, i);
 	case ASTASIGN:
 	case ASTRET:
-		return constfoldexpr(ctx, folds, scps, types, ast, toks,
-		                     types[i], ast.kids[i].rhs);
+		return constfoldexpr(ctx, ctx->types[i], ctx->ast.kids[i].rhs);
 	default:
 		__builtin_unreachable();
 	}
 }
 
 idx_t
-constfoldblk(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
-             ast_t ast, lexemes_t toks, idx_t i)
+constfoldblk(struct azctx *ctx, idx_t i)
 {
-	pair_t p = ast.kids[i];
-	while (scps[ctx.si].i != p.lhs)
-		ctx.si++;
-	for (i = p.lhs; i <= p.rhs;
-	     i = constfoldstmt(ctx, folds, scps, types, ast, toks, i))
-		;
+	/* Create local copy */
+	struct azctx nctx = *ctx;
+	ctx = &nctx;
 
+	pair_t p = ctx->ast.kids[i];
+	while (ctx->scps.buf[ctx->si].i != p.lhs)
+		ctx->si++;
+	for (i = p.lhs; i <= p.rhs; i = constfoldstmt(ctx, i))
+		;
 	return i;
 }
 
 idx_t
-constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
-              ast_t ast, lexemes_t toks, type_t T, idx_t i)
+constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 {
-	if (MPQ_IS_INIT(folds[i]))
-		return fwdnode(ast, i);
+	if (MPQ_IS_INIT(ctx->folds[i]))
+		return fwdnode(ctx->ast, i);
 
 	idx_t ni;
+	struct azctx nctx;
 
-	switch (ast.kinds[i]) {
+	switch (ctx->ast.kinds[i]) {
 	case ASTFN:
-		return constfoldblk(ctx, folds, scps, types, ast, toks,
-		                    ast.kids[i].rhs);
+		return constfoldblk(ctx, ctx->ast.kids[i].rhs);
 	case ASTNUMLIT: {
-		mpq_init(folds[i]);
+		mpq_init(ctx->folds[i]);
 
-		strview_t sv = toks.strs[ast.lexemes[i]];
-		char *buf = tmpalloc(ctx.s, sv.len + 1, 1);
+		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
+		char *buf = tmpalloc(ctx->s, sv.len + 1, 1);
 		size_t len = 0;
 
 		bool isfloat = false;
@@ -520,48 +593,51 @@ constfoldexpr(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 #endif
 				mpf_set_str(x, buf, 10);
 			assert(ret == 0);
-			mpq_set_f(folds[i], x);
+			mpq_set_f(ctx->folds[i], x);
 			mpf_clear(x);
 		} else {
 #if DEBUG
 			int ret =
 #endif
-				mpq_set_str(folds[i], buf, 10);
+				mpq_set_str(ctx->folds[i], buf, 10);
 			assert(ret == 0);
 		}
-		ni = fwdnode(ast, i);
+		ni = fwdnode(ctx->ast, i);
 		break;
 	}
 	case ASTIDENT: {
-		strview_t sv = toks.strs[ast.lexemes[i]];
+		/* Create local copy */
+		nctx = *ctx;
+		ctx = &nctx;
+
+		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
 
 		/* Variable shadowing */
-		if (strview_eq(sv, ctx.decl) && ctx.si > 0)
-			ctx.si--;
+		if (strview_eq(sv, ctx->decl) && ctx->si > 0)
+			ctx->si--;
 
-		for (idx_t lvl = ctx.si;;) {
-			scope_t scp = scps[lvl];
+		for (idx_t lvl = ctx->si;;) {
+			scope_t scp = ctx->scps.buf[lvl];
 			symval_t *sym = symtab_insert(&scp.map, sv, NULL);
 
 			if (sym == NULL) {
 				assert(lvl != 0);
 				lvl = scp.up;
 			} else {
-				switch (ast.kinds[sym->i]) {
+				switch (ctx->ast.kinds[sym->i]) {
 				case ASTDECL:
-					return fwdnode(ast, i);
+					return fwdnode(ctx->ast, i);
 				case ASTCDECL: {
-					idx_t expr = ast.kids[sym->i].rhs;
+					idx_t expr = ctx->ast.kids[sym->i].rhs;
 					assert(expr != AST_EMPTY);
-					MPQCPY(folds[i], folds[expr]);
-					if (!MPQ_IS_INIT(folds[i])) {
-						ctx.si = lvl;
-						(void)constfolddecl(ctx, folds, scps, types, ast, toks,
-						                    sym->i);
-						MPQCPY(folds[i], folds[expr]);
-						assert(MPQ_IS_INIT(folds[i]));
+					MPQCPY(ctx->folds[i], ctx->folds[expr]);
+					if (!MPQ_IS_INIT(ctx->folds[i])) {
+						ctx->si = lvl;
+						(void)constfolddecl(ctx, sym->i);
+						MPQCPY(ctx->folds[i], ctx->folds[expr]);
+						assert(MPQ_IS_INIT(ctx->folds[i]));
 					}
-					ni = fwdnode(ast, i);
+					ni = fwdnode(ctx->ast, i);
 					goto out;
 				}
 				default:
@@ -573,19 +649,18 @@ out:
 		break;
 	}
 	case ASTUNCMPL: {
-		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i],
-		                   ast.kids[i].rhs);
-		if (MPQ_IS_INIT(folds[ast.kids[i].rhs]))
+		ni = constfoldexpr(ctx, ctx->types[i], ctx->ast.kids[i].rhs);
+		if (MPQ_IS_INIT(ctx->folds[ctx->ast.kids[i].rhs]))
 			err("analyzer: Cannot perform bitwise complement of constant");
 		break;
 	}
 	case ASTUNNEG: {
-		idx_t rhs = ast.kids[i].rhs;
-		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
-		mpq_t *x = folds + rhs;
+		idx_t rhs = ctx->ast.kids[i].rhs;
+		ni = constfoldexpr(ctx, ctx->types[i], rhs);
+		mpq_t *x = ctx->folds + rhs;
 		if (MPQ_IS_INIT(*x)) {
-			MPQCPY(folds[i], *x);
-			mpq_neg(folds[i], folds[i]);
+			MPQCPY(ctx->folds[i], *x);
+			mpq_neg(ctx->folds[i], ctx->folds[i]);
 		}
 		break;
 	}
@@ -599,31 +674,32 @@ out:
 			['*'] = mpq_mul,
 		};
 		idx_t lhs, rhs;
-		lhs = ast.kids[i].lhs;
-		rhs = ast.kids[i].rhs;
-		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], lhs);
-		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
-		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
-			mpq_init(folds[i]);
-			mpq_fns[ast.kinds[i]](folds[i], folds[lhs], folds[rhs]);
+		lhs = ctx->ast.kids[i].lhs;
+		rhs = ctx->ast.kids[i].rhs;
+		(void)constfoldexpr(ctx, ctx->types[i], lhs);
+		ni = constfoldexpr(ctx, ctx->types[i], rhs);
+		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
+			mpq_init(ctx->folds[i]);
+			mpq_fns[ctx->ast.kinds[i]](ctx->folds[i], ctx->folds[lhs],
+			                           ctx->folds[rhs]);
 		}
 		break;
 	}
 	case ASTBINDIV: {
 		idx_t lhs, rhs;
-		lhs = ast.kids[i].lhs;
-		rhs = ast.kids[i].rhs;
+		lhs = ctx->ast.kids[i].lhs;
+		rhs = ctx->ast.kids[i].rhs;
 
-		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], lhs);
-		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
+		(void)constfoldexpr(ctx, ctx->types[i], lhs);
+		ni = constfoldexpr(ctx, ctx->types[i], rhs);
 
-		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
-			mpq_init(folds[i]);
-			if (types[i].isfloat)
-				mpq_div(folds[i], folds[lhs], folds[rhs]);
+		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
+			mpq_init(ctx->folds[i]);
+			if (ctx->types[i]->isfloat)
+				mpq_div(ctx->folds[i], ctx->folds[lhs], ctx->folds[rhs]);
 			else {
-				mpz_tdiv_q(mpq_numref(folds[i]), mpq_numref(folds[lhs]),
-				           mpq_numref(folds[rhs]));
+				mpz_tdiv_q(mpq_numref(ctx->folds[i]), mpq_numref(ctx->folds[lhs]),
+				           mpq_numref(ctx->folds[rhs]));
 			}
 		}
 		break;
@@ -641,18 +717,18 @@ out:
 		};
 
 		idx_t lhs, rhs;
-		lhs = ast.kids[i].lhs;
-		rhs = ast.kids[i].rhs;
+		lhs = ctx->ast.kids[i].lhs;
+		rhs = ctx->ast.kids[i].rhs;
 
-		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], lhs);
-		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[i], rhs);
+		(void)constfoldexpr(ctx, ctx->types[i], lhs);
+		ni = constfoldexpr(ctx, ctx->types[i], rhs);
 
-		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
-			assert(MPQ_IS_WHOLE(folds[lhs]));
-			assert(MPQ_IS_WHOLE(folds[rhs]));
-			mpq_init(folds[i]);
-			mpz_fns[ast.kinds[i]](mpq_numref(folds[i]), mpq_numref(folds[lhs]),
-			                      mpq_numref(folds[rhs]));
+		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
+			assert(MPQ_IS_WHOLE(ctx->folds[lhs]));
+			assert(MPQ_IS_WHOLE(ctx->folds[rhs]));
+			mpq_init(ctx->folds[i]);
+			mpz_fns[ctx->ast.kinds[i]](mpq_numref(ctx->folds[i]), mpq_numref(ctx->folds[lhs]),
+			                      mpq_numref(ctx->folds[rhs]));
 		}
 		break;
 	}
@@ -665,28 +741,28 @@ out:
 		};
 
 		idx_t lhs, rhs;
-		lhs = ast.kids[i].lhs;
-		rhs = ast.kids[i].rhs;
+		lhs = ctx->ast.kids[i].lhs;
+		rhs = ctx->ast.kids[i].rhs;
 
-		(void)constfoldexpr(ctx, folds, scps, types, ast, toks, types[lhs], lhs);
-		ni = constfoldexpr(ctx, folds, scps, types, ast, toks, types[rhs], rhs);
+		(void)constfoldexpr(ctx, ctx->types[lhs], lhs);
+		ni = constfoldexpr(ctx, ctx->types[rhs], rhs);
 
-		if (MPQ_IS_INIT(folds[rhs])) {
-			if (mpq_sgn(folds[rhs]) == -1)
+		if (MPQ_IS_INIT(ctx->folds[rhs])) {
+			if (mpq_sgn(ctx->folds[rhs]) == -1)
 				err("analyzer: Cannot shift by negative value");
 		}
 
-		if (MPQ_IS_INIT(folds[lhs]) && MPQ_IS_INIT(folds[rhs])) {
+		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
 			mpz_ptr cur_z, lhs_z, rhs_z;
-			cur_z = mpq_numref(folds[i]);
-			lhs_z = mpq_numref(folds[lhs]);
-			rhs_z = mpq_numref(folds[rhs]);
+			cur_z = mpq_numref(ctx->folds[i]);
+			lhs_z = mpq_numref(ctx->folds[lhs]);
+			rhs_z = mpq_numref(ctx->folds[rhs]);
 
-			mpq_init(folds[i]);
+			mpq_init(ctx->folds[i]);
 			if (mpz_cmp_ui(rhs_z, ULONG_MAX) > 0)
 				err("analyzer: Shift oprand too large");
 			mp_bitcnt_t shftcnt = mpz_get_ui(rhs_z);
-			mpz_fns[ast.kinds[i]](cur_z, lhs_z, shftcnt);
+			mpz_fns[ctx->ast.kinds[i]](cur_z, lhs_z, shftcnt);
 		}
 		break;
 	}
@@ -694,23 +770,21 @@ out:
 		__builtin_unreachable();
 	}
 
-	if (MPQ_IS_INIT(folds[i]) && !T.issigned && mpq_sgn(folds[i]) == -1)
+	if (MPQ_IS_INIT(ctx->folds[i]) && !T->issigned && mpq_sgn(ctx->folds[i]) == -1)
 		err("analyzer: Cannot convert negative value to unsigned type");
 
-	if (T.size != 0 && !T.isfloat && MPQ_IS_INIT(folds[i])) {
-		if (!MPQ_IS_WHOLE(folds[i]))
+	if (T->size != 0 && !T->isfloat && MPQ_IS_INIT(ctx->folds[i])) {
+		if (!MPQ_IS_WHOLE(ctx->folds[i]))
 			err("analyzer: Invalid integer");
 
 		int cmp;
-		mpz_ptr num = mpq_numref(folds[i]);
-		/* TODO: Can we make the first branch work when the type has the
-		   same size as an unsigned long? */
-		if (T.size < sizeof(unsigned long)) {
-			unsigned long x = 1UL << (T.size * 8 - T.issigned);
+		mpz_ptr num = mpq_numref(ctx->folds[i]);
+		if (T->size < sizeof(unsigned long)) {
+			unsigned long x = 1UL << (T->size * 8 - T->issigned);
 			cmp = mpz_cmp_ui(num, x - 1);
 		} else {
 			mpz_t x;
-			mp_bitcnt_t bits = T.size * 8 - T.issigned;
+			mp_bitcnt_t bits = T->size * 8 - T->issigned;
 			mpz_init_set_ui(x, 1);
 			mpz_mul_2exp(x, x, bits);
 			mpz_sub_ui(x, x, 1);
@@ -725,25 +799,24 @@ out:
 }
 
 idx_t
-constfolddecl(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
-              ast_t ast, lexemes_t toks, idx_t i)
+constfolddecl(struct azctx *ctx, idx_t i)
 {
-	if (ast.kids[i].rhs == AST_EMPTY)
-		return fwdnode(ast, i);
-	ctx.decl = toks.strs[ast.lexemes[i]];
-	return constfoldexpr(ctx, folds, scps, types, ast, toks, types[i],
-	                     ast.kids[i].rhs);
+	if (ctx->ast.kids[i].rhs == AST_EMPTY)
+		return fwdnode(ctx->ast, i);
+
+	/* Create local copy */
+	struct azctx nctx = *ctx;
+	ctx = &nctx;
+	ctx->decl = ctx->toks.strs[ctx->ast.lexemes[i]];
+
+	return constfoldexpr(ctx, ctx->types[i], ctx->ast.kids[i].rhs);
 }
 
 void
-constfold(mpq_t *folds, scope_t *scps, type_t *types, ast_t ast, lexemes_t toks,
-          arena_t *a, scratch_t *s)
+constfold(struct azctx *ctx)
 {
-	struct cfctx ctx = {.a = a, .s = s};
-	for (idx_t i = 0; likely(i < ast.len);) {
-		assert(ast.kinds[i] <= _AST_DECLS_END);
-		i = constfolddecl(ctx, folds, scps, types, ast, toks, i);
-	}
+	for (idx_t i = 0; likely(i < ctx->ast.len); i = constfolddecl(ctx, i))
+		assert(ctx->ast.kinds[i] <= _AST_DECLS_END);
 }
 
 bool
@@ -761,23 +834,26 @@ returns(ast_t ast, idx_t i)
 }
 
 bool
-typecompat(type_t lhs, type_t rhs)
+typecompat(type_t *lhs, type_t *rhs)
 {
+	if (lhs == rhs)
+		return true;
+
 	/* Function types are compatible if they have the same parameter- and
 	   return types */
-	if (lhs.kind == TYPE_FN && rhs.kind == TYPE_FN)
-		return lhs.paramcnt == rhs.paramcnt && lhs.ret == rhs.ret;
-	if (lhs.kind == TYPE_FN || rhs.kind == TYPE_FN)
+	if (lhs->kind == TYPE_FN && rhs->kind == TYPE_FN)
+		return lhs->paramcnt == rhs->paramcnt && lhs->ret == rhs->ret;
+	if (lhs->kind == TYPE_FN || rhs->kind == TYPE_FN)
 		return false;
 
 	/* At this point we only have numeric types left */
 
 	/* Untyped numeric types are compatible with all numeric types */
-	if (lhs.size == 0 || rhs.size == 0)
+	if (lhs->size == 0 || rhs->size == 0)
 		return true;
 
 	/* Two typed numeric types are only compatible if they have the same size
 	   and sign and are either both integral or both floats */
-	return lhs.issigned == rhs.issigned && lhs.isfloat == rhs.isfloat
-	    && lhs.size == rhs.size;
+	return lhs->issigned == rhs->issigned && lhs->isfloat == rhs->isfloat
+	    && lhs->size == rhs->size;
 }

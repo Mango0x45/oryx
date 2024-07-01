@@ -61,7 +61,7 @@ static void mkgmp(int);
 static bool tagvalid(const char *);
 static void chk_cpu_flags(void);
 static int globerr(const char *, int);
-static tjob cc, cc_test, gperf;
+static tjob cc, cc_test;
 
 static void
 usage(void)
@@ -158,14 +158,7 @@ main(int argc, char **argv)
 
 	glob_t g;
 
-	/* GNU Perf files */
-	assert(glob("src/*.gperf", 0, globerr, &g) == 0);
-	for (size_t i = 0; i < g.gl_pathc; i++)
-		tpenq(&tp, gperf, g.gl_pathv[i], NULL);
-	tpwait(&tp);
-
 	/* C files */
-	globfree(&g);
 	assert(glob("src/*.c", 0, globerr, &g) == 0);
 	for (size_t i = 0; i < g.gl_pathc; i++)
 		tpenq(&tp, cc, g.gl_pathv[i], NULL);
@@ -259,24 +252,6 @@ cc_test(void *arg)
 		strspushl(&cmd, "-DORYX_SIMD=1");
 	strspushl(&cmd, "-Isrc", "-o", dst, src);
 	strspush(&cmd, d.objs, d.len);
-
-	cmdput(cmd);
-	cmdexec(cmd);
-	strsfree(&cmd);
-out:
-	free(dst);
-}
-
-void
-gperf(void *arg)
-{
-	struct strs cmd = {0};
-	char *dst = swpext(arg, "gen.c"), *src = arg;
-
-	if (!fflag && fmdnewer(dst, src))
-		goto out;
-
-	strspushl(&cmd, "gperf", src, "--output-file", dst);
 
 	cmdput(cmd);
 	cmdexec(cmd);

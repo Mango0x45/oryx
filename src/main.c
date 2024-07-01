@@ -74,13 +74,12 @@ usage:
 
 	aux_t aux;
 	mpq_t *folds;
-	type_t *types;
 	scope_t *scps;
 	arena_t a = NULL;
 
 	lexemes_t toks = lexstring(src, srclen);
 	ast_t ast = parsetoks(toks, &aux);
-	analyzeprog(ast, aux, toks, &a, &types, &scps, &folds);
+	type_t **types = analyzeprog(ast, aux, toks, &a, &scps, &folds);
 	codegen(argv[0], folds, scps, types, ast, aux, toks);
 
 #if DEBUG
@@ -91,8 +90,8 @@ usage:
 
 	free(folds);
 	free(scps);
-	free(src);
 	free(types);
+	free(src);
 	lexemes_free(toks);
 	ast_free(ast);
 	aux_free(aux);

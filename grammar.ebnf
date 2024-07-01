@@ -1,0 +1,75 @@
+(* vi: ft=ebnf
+ *)
+
+program
+	: {'pub' declaration}
+	;
+
+declaration
+	: mutdecl
+	| constdecl
+	;
+
+assignment
+	: expression '=' expression ';'
+	;
+
+mutdecl
+	: IDENT ':' type ';'
+	| IDENT ':' [type] '=' (expression | ellipsis) ';'
+	;
+
+constdecl
+	: IDENT ':' [type] ':' (expression ';' | function)
+	;
+
+function
+	: prototype '{' statement* '}'
+	;
+
+prototype
+	: '(' ')' [type]
+	;
+
+statement
+	| declaration
+	| assignment
+	| 'return' [expression] ';'
+	;
+
+expression
+	: IDENT
+	| NUMERIC
+	| unop expression
+	| expression binop expression
+	| '(' expression ')'
+	;
+
+unop
+	: '-'
+	| '&'
+	| '+'
+	| '~'
+	;
+
+binop
+	: '+'
+	| '%'
+	| '&'
+	| '*'
+	| '-'
+	| '/'
+	| '<<'
+	| '>>'
+	| '|'
+	| '~'
+	;
+
+type
+	: IDENT
+	;
+
+ellipsis
+	: '…'
+	| '...'
+	;

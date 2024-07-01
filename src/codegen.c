@@ -17,8 +17,6 @@
 #include "parser.h"
 #include "strview.h"
 
-#define lengthof(xs) (sizeof(xs) / sizeof(*(xs)))
-
 /* Cheers to Lernö for this */
 #define LLVM_TARGET_INIT(x)                                                    \
 	do {                                                                       \
@@ -38,7 +36,7 @@ struct cgctx {
 
 	mpq_t     *folds;
 	scope_t   *scps;
-	type_t    *types;
+	type_t    **types;
 	ast_t     ast;
 	aux_t     aux;
 	lexemes_t toks;
@@ -54,15 +52,16 @@ struct cgctx {
 };
 
 static void codegenast(struct cgctx);
-static LLVMTypeRef type2llvm(struct cgctx, type_t);
+static LLVMTypeRef type2llvm(struct cgctx, type_t *)
+	__attribute__((nonnull));
 static symval_t *symtab_get_from_scopes(struct cgctx ctx, strview_t sv);
 
 extern bool lflag, sflag;
 extern const char *oflag;
 
 void
-codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types, ast_t ast,
-        aux_t aux, lexemes_t toks)
+codegen(const char *file, mpq_t *folds, scope_t *scps, type_t **types,
+        ast_t ast, aux_t aux, lexemes_t toks)
 {
 	LLVM_TARGET_INIT(AArch64);
 	LLVM_TARGET_INIT(X86);
@@ -142,13 +141,13 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t *types, ast_t ast,
 static idx_t codegendecl(struct cgctx ctx, idx_t);
 
 idx_t
-codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
+codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 {
 	/* If true, implies numeric constant */
-	if (MPQ_IS_INIT(ctx.folds[i]) && !type.isfloat) {
+	if (MPQ_IS_INIT(ctx.folds[i]) && !T->isfloat) {
 		char buf[40 /* The max value of a u128 is length 39 */];
 		mpz_get_str(buf, 10, mpq_numref(ctx.folds[i]));
-		*outv = LLVMConstIntOfString(type2llvm(ctx, type), buf, 10);
+		*outv = LLVMConstIntOfString(type2llvm(ctx, T), buf, 10);
 		return fwdnode(ctx.ast, i);
 	} else if (MPQ_IS_INIT(ctx.folds[i]) /* && type.isfloat */) {
 		char *s, *buf;
@@ -158,7 +157,7 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		mp_bitcnt_t prec;
 
 		/* TODO: Is this even correct? */
-		switch (type.size) {
+		switch (T->size) {
 		case 2:
 			prec = 5;
 			break;
@@ -187,7 +186,7 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		for (size_t i = e; i < len; i++)
 			buf[i + 1] = s[i];
 		buf[len + 1] = 0;
-		*outv = LLVMConstRealOfString(type2llvm(ctx, type), buf);
+		*outv = LLVMConstRealOfString(type2llvm(ctx, T), buf);
 
 		free(s);
 		mpf_clear(x);
@@ -248,13 +247,13 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		(void)codegentypedexpr(ctx, lhs, ctx.types[i], &vl);
 		idx_t ni = codegentypedexpr(ctx, rhs, ctx.types[i], &vr);
 
-		if (ctx.ast.kinds[i] >= ASTBINSHL && ctx.types[rhs].size != 0) {
+		if (ctx.ast.kinds[i] >= ASTBINSHL && ctx.types[rhs]->size != 0) {
 			vr = LLVMBuildIntCast2(ctx.bob, vr, type2llvm(ctx, ctx.types[lhs]),
 			                       false, "cast");
 		}
 
 		struct binop bo = binoptbl[ctx.ast.kinds[i]];
-		*outv = bo.fn[ctx.types[i].isfloat ? 2 : ctx.types[i].issigned](
+		*outv = bo.fn[ctx.types[i]->isfloat ? 2 : ctx.types[i]->issigned](
 			ctx.bob, vl, vr, bo.name);
 		return ni;
 	}
@@ -364,9 +363,9 @@ codegenfunc(struct cgctx ctx, idx_t i, strview_t sv)
 	}
 	arena_snapshot_restore(ctx.a, snap);
 
-	LLVMTypeRef ret = ctx.types[i].ret == NULL
+	LLVMTypeRef ret = ctx.types[i]->ret == NULL
 	                    ? LLVMVoidTypeInContext(ctx.ctx)
-	                    : type2llvm(ctx, *ctx.types[i].ret);
+	                    : type2llvm(ctx, ctx.types[i]->ret);
 
 	LLVMTypeRef ft = LLVMFunctionType(ret, NULL, 0, false);
 	ctx.func = LLVMAddFunction(ctx.mod, name, ft);
@@ -449,17 +448,17 @@ codegenast(struct cgctx ctx)
 }
 
 LLVMTypeRef
-type2llvm(struct cgctx ctx, type_t t)
+type2llvm(struct cgctx ctx, type_t *T)
 {
-	switch (t.kind) {
+	switch (T->kind) {
 	case TYPE_FN:
 		err("codegen: %s: Not implemented for function types", __func__);
 	case TYPE_NUM:
-		assert(t.size != 0);
-		assert((unsigned)t.size * 8 <= 128);
-		if (!t.isfloat)
-			return LLVMIntTypeInContext(ctx.ctx, t.size * 8);
-		switch (t.size) {
+		assert(T->size != 0);
+		assert((unsigned)T->size * 8 <= 128);
+		if (!T->isfloat)
+			return LLVMIntTypeInContext(ctx.ctx, T->size * 8);
+		switch (T->size) {
 		case 2:
 			return LLVMHalfTypeInContext(ctx.ctx);
 		case 4:

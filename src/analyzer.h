@@ -38,25 +38,7 @@ typedef struct {
 	symtab_t *map;
 } scope_t;
 
-/* A variable type */
-typedef struct type {
-	uint8_t kind;
-
-	union {
-		struct {
-			uint8_t size; /* number of bytes */
-			bool isfloat;
-			bool issigned;
-		};
-		struct  {
-			const struct type *params, *ret;
-			idx_t paramcnt;
-		};
-	};
-} type_t;
-
-void analyzeprog(ast_t, aux_t, lexemes_t, arena_t *, type_t **, scope_t **,
-                 mpq_t **)
-	__attribute__((nonnull));
+type_t **analyzeprog(ast_t, aux_t, lexemes_t, arena_t *, scope_t **, mpq_t **)
+	__attribute__((returns_nonnull, nonnull));
 
 #endif /* !ORYX_ANALYZER_H */

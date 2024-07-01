@@ -17,7 +17,8 @@ typedef struct {
 #define SV_PRI_ARGS(sv) ((int)(sv).len), ((sv).p)
 
 /* Convert the string-literal S into a string-view */
-#define SV(s) ((strview_t){s, sizeof(s) - 1})
+#define SV(s)  ((strview_t){s, sizeof(s) - 1})
+#define SVC(s) {s, sizeof(s) - 1}
 
 /* Return the hash of SV */
 uint64_t strview_hash(strview_t sv);

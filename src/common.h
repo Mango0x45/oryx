@@ -31,4 +31,6 @@
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 
+#define lengthof(xs) (sizeof(xs) / sizeof(*(xs)))
+
 #endif /* !ORYX_COMMON_H */

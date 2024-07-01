@@ -6,9 +6,8 @@
 #include <unistd.h>
 
 #include "alloc.h"
+#include "common.h"
 #include "test-internal.h"
-
-#define lengthof(xs) (sizeof(xs) / sizeof(*(xs)))
 
 static void make_and_free(void),
             make_and_resize(void),
