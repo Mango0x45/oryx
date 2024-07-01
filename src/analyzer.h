@@ -14,17 +14,11 @@
 
 /* The different base types */
 enum {
-	/* No type exists (or hasn’t yet been typechecked) */
-	TYPE_UNSET,
-
 	/* Currently in the process of being typechecked.  Useful for
 	   detecting cyclic definitions. */
 	TYPE_CHECKING,
 
-	/* A numeric type */
 	TYPE_NUM,
-
-	/* A function type */
 	TYPE_FN,
 
 	_TYPE_LAST_ENT,

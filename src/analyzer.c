@@ -129,12 +129,12 @@ static struct {
 	strview_t name;
 	type_t t;
 } primitives[] = {
-	[PRIM_INT]     = {SVC("int"),  {.kind = TYPE_NUM, .size =  8, .issigned = true}},
-	[PRIM_INT8]    = {SVC("i8"),   {.kind = TYPE_NUM, .size =  1, .issigned = true}},
-	[PRIM_INT16]   = {SVC("i16"),  {.kind = TYPE_NUM, .size =  2, .issigned = true}},
-	[PRIM_INT32]   = {SVC("i32"),  {.kind = TYPE_NUM, .size =  4, .issigned = true}},
-	[PRIM_INT64]   = {SVC("i64"),  {.kind = TYPE_NUM, .size =  8, .issigned = true}},
-	[PRIM_INT128]  = {SVC("i128"), {.kind = TYPE_NUM, .size = 16, .issigned = true}},
+	[PRIM_INT]    = {SVC("int"),  {.kind = TYPE_NUM, .size =  8, .issigned = true}},
+	[PRIM_INT8]   = {SVC("i8"),   {.kind = TYPE_NUM, .size =  1, .issigned = true}},
+	[PRIM_INT16]  = {SVC("i16"),  {.kind = TYPE_NUM, .size =  2, .issigned = true}},
+	[PRIM_INT32]  = {SVC("i32"),  {.kind = TYPE_NUM, .size =  4, .issigned = true}},
+	[PRIM_INT64]  = {SVC("i64"),  {.kind = TYPE_NUM, .size =  8, .issigned = true}},
+	[PRIM_INT128] = {SVC("i128"), {.kind = TYPE_NUM, .size = 16, .issigned = true}},
 
 	[PRIM_UINT]    = {SVC("uint"), {.kind = TYPE_NUM, .size =  8}},
 	[PRIM_UINT8]   = {SVC("u8"),   {.kind = TYPE_NUM, .size =  1}},
@@ -143,12 +143,12 @@ static struct {
 	[PRIM_UINT64]  = {SVC("u64"),  {.kind = TYPE_NUM, .size =  8}},
 	[PRIM_UINT128] = {SVC("u128"), {.kind = TYPE_NUM, .size = 16}},
 
-	[PRIM_RUNE]    = {SVC("rune"), {.kind = TYPE_NUM, .size = 4, .issigned = true}},
+	[PRIM_RUNE] = {SVC("rune"), {.kind = TYPE_NUM, .size = 4, .issigned = true}},
 
-	[PRIM_F16]     = {SVC("f16"),  {.kind = TYPE_NUM, .size =  2, .isfloat = true}},
-	[PRIM_F32]     = {SVC("f32"),  {.kind = TYPE_NUM, .size =  4, .isfloat = true}},
-	[PRIM_F64]     = {SVC("f64"),  {.kind = TYPE_NUM, .size =  8, .isfloat = true}},
-	[PRIM_F128]    = {SVC("f128"), {.kind = TYPE_NUM, .size = 16, .isfloat = true}},
+	[PRIM_F16]  = {SVC("f16"),  {.kind = TYPE_NUM, .size =  2, .isfloat = true}},
+	[PRIM_F32]  = {SVC("f32"),  {.kind = TYPE_NUM, .size =  4, .isfloat = true}},
+	[PRIM_F64]  = {SVC("f64"),  {.kind = TYPE_NUM, .size =  8, .isfloat = true}},
+	[PRIM_F128] = {SVC("f128"), {.kind = TYPE_NUM, .size = 16, .isfloat = true}},
 };
 
 static type_t NOT_CHECKED = {.kind = TYPE_CHECKING};
@@ -256,7 +256,6 @@ analyzedecl(struct azctx *ctx, idx_t i)
 			err("analyzer: Variable ‘%.*s’ declared multiple times",
 			    SV_PRI_ARGS(sv));
 		} else {
-			printf("inserted %.*s\n", SV_PRI_ARGS(sv));
 			sym->i = i;
 			sym->exists = true;
 		}
@@ -321,14 +320,13 @@ analyzestmt(struct azctx *ctx, idx_t i)
 	case ASTRET: {
 		idx_t expr = ctx->ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
-			if (ctx->fnret->kind != TYPE_UNSET)
+			if (ctx->fnret != NULL)
 				err("analyzer: Missing return value");
 			return i + 1;
-		} else if (ctx->fnret->kind == TYPE_UNSET)
+		} else if (ctx->fnret == NULL)
 			err("analyzer: Function has no return value");
 
 		idx_t ni = analyzeexpr(ctx, expr);
-		printf("%p %p\n", (void *)ctx->fnret, (void *)ctx->types[expr]);
 		if (!typecompat(ctx->fnret, ctx->types[expr]))
 			err("analyzer: Return type mismatch");
 		ctx->types[i] = ctx->fnret;
@@ -369,12 +367,10 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 					break;
 				lvl = scp.up;
 			} else {
-				switch (ctx->types[sym->i]->kind) {
-				case TYPE_UNSET:
+				if (ctx->types[sym->i] == NULL) {
 					ctx->si = lvl;
 					(void)analyzedecl(ctx, sym->i);
-					break;
-				case TYPE_CHECKING:
+				} else if (ctx->types[sym->i]->kind == TYPE_CHECKING) {
 					err("analyzer: Circular definition of ‘%.*s’",
 					    SV_PRI_ARGS(sv));
 				}
