@@ -198,8 +198,7 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 	case ASTIDENT: {
 		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
-		LLVMValueRef ptrval =
-			symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
+		LLVMValueRef ptrval = symtab_get_from_scopes(ctx, sv)->v;
 		*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "load");
 		return fwdnode(ctx.ast, i);
 	}
@@ -414,6 +413,7 @@ codegendecl(struct cgctx ctx, idx_t i)
 		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
 		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
 		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, svtocstr(name, sv));
+		symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v = globl;
 
 		LLVMValueRef v;
 		if (p.rhs == AST_EMPTY) {
