@@ -421,6 +421,7 @@ llvmquery(struct strs *xs, int flags)
 
 	strspush(xs, words, we.we_wordc);
 	wordfree(&we);
+	free(words);
 	free(buf);
 	return true;
 }
