@@ -195,9 +195,13 @@ analyzedecl(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 {
 	strview_t sv = toks.strs[ast.lexemes[i]];
 
-	bool isstatic = ast.kinds[i] <= _AST_DECLS_END
-	             && aux.buf[ast.kids[i].lhs].decl.isstatic;
 	bool isconst = ast.kinds[i] == ASTCDECL;
+	bool isundef = aux.buf[ast.kids[i].lhs].decl.isundef;
+	bool isstatic = ast.kinds[i] <= _AST_DECLS_END
+		&& aux.buf[ast.kids[i].lhs].decl.isstatic;
+
+	if (isstatic && isundef)
+		err("analyzer: Static variables may not be undefined");
 
 	if (!isconst && !isstatic) {
 		symval_t *sym = symtab_insert(&scps[ctx.si].map, sv, ctx.a);
