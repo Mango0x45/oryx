@@ -55,6 +55,7 @@ struct cgctx {
 
 static void codegenast(struct cgctx);
 static LLVMTypeRef type2llvm(struct cgctx, type_t);
+static symval_t *symtab_get_from_scopes(struct cgctx ctx, strview_t sv);
 
 extern bool lflag, sflag;
 extern const char *oflag;
@@ -269,6 +270,16 @@ codegenstmt(struct cgctx ctx, idx_t i)
 	case ASTDECL:
 	case ASTCDECL:
 		return codegendecl(ctx, i);
+	case ASTASIGN: {
+		pair_t p = ctx.ast.kids[i];
+		assert(ctx.ast.kinds[p.lhs] == ASTIDENT);
+		LLVMValueRef var, val;
+		var = symtab_get_from_scopes(ctx, ctx.toks.strs[ctx.ast.lexemes[p.lhs]])
+		          ->v;
+		i = codegentypedexpr(ctx, p.rhs, ctx.types[i], &val);
+		LLVMBuildStore(ctx.bob, val, var);
+		return i;
+	}
 	case ASTRET: {
 		idx_t expr = ctx.ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
@@ -461,5 +472,16 @@ type2llvm(struct cgctx ctx, type_t t)
 		}
 	default:
 		__builtin_unreachable();
+	}
+}
+
+symval_t *
+symtab_get_from_scopes(struct cgctx ctx, strview_t sv)
+{
+	for (;;) {
+		symval_t *p = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL);
+		if (p != NULL || ctx.scpi == 0)
+			return p;
+		ctx.scpi = ctx.scps[ctx.scpi].up;
 	}
 }

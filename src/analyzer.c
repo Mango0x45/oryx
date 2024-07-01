@@ -248,6 +248,18 @@ analyzestmt(struct azctx ctx, scope_t *scps, type_t *types, ast_t ast,
 	case ASTDECL:
 	case ASTCDECL:
 		return analyzedecl(ctx, scps, types, ast, aux, toks, i);
+	case ASTASIGN: {
+		pair_t p = ast.kids[i];
+		(void)analyzeexpr(ctx, scps, types, ast, aux, toks, p.lhs);
+		/* TODO: Allow assignments to expressions returning pointer types */
+		if (ast.kinds[p.lhs] != ASTIDENT)
+			err("analyzer: Assignments may only be made to identifiers");
+		idx_t ni = analyzeexpr(ctx, scps, types, ast, aux, toks, p.rhs);
+		if (!typecompat(types[p.lhs], types[p.rhs]))
+			err("analyzer: Assignment type mismatch");
+		types[i] = types[p.lhs];
+		return ni;
+	}
 	case ASTRET: {
 		idx_t expr = ast.kids[i].rhs;
 		if (expr == AST_EMPTY) {
@@ -437,6 +449,7 @@ constfoldstmt(struct cfctx ctx, mpq_t *folds, scope_t *scps, type_t *types,
 	case ASTDECL:
 	case ASTCDECL:
 		return constfolddecl(ctx, folds, scps, types, ast, toks, i);
+	case ASTASIGN:
 	case ASTRET:
 		return constfoldexpr(ctx, folds, scps, types, ast, toks,
 		                     types[i], ast.kids[i].rhs);
@@ -733,8 +746,9 @@ bool
 returns(ast_t ast, idx_t i)
 {
 	switch (ast.kinds[i]) {
-	case ASTDECL:
+	case ASTASIGN:
 	case ASTCDECL:
+	case ASTDECL:
 		return false;
 	case ASTRET:
 		return true;

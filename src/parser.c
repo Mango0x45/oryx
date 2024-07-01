@@ -66,12 +66,13 @@ fwdnode(ast_t ast, idx_t i)
 				return i + 1;
 			i = ast.kids[i].rhs;
 			break;
+		case ASTASIGN:
 		case ASTBINADD:
 		case ASTBINAND:
 		case ASTBINDIV:
+		case ASTBINIOR:
 		case ASTBINMOD:
 		case ASTBINMUL:
-		case ASTBINIOR:
 		case ASTBINSHL:
 		case ASTBINSHR:
 		case ASTBINSUB:
@@ -340,9 +341,6 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 {
 	idx_t i;
 
-	if (toks.kinds[toksidx] != LEXIDENT)
-		err("parser: Expected identifier");
-
 	strview_t sv = toks.strs[toksidx];
 	if (strview_eq(SV("return"), sv)) {
 		i = astalloc(ast);
@@ -356,8 +354,18 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 			err("parser: Expected semicolon");
 	} else if (toks.kinds[toksidx + 1] == LEXCOLON) {
 		i = parsedecl(ast, aux, toks, false);
-	} else {
-		err("parser: Invalid statement");
+	} else /* assignment */ {
+		idx_t lhs, rhs;
+		i = astalloc(ast);
+		lhs = parseexpratom(ast, toks);
+		if (toks.kinds[toksidx++] != LEXEQ)
+			err("parser: Expected equals");
+		rhs = parseexpr(ast, toks, 0);
+		if (toks.kinds[toksidx++] != LEXSEMI)
+			err("parser: Expected semicolon");
+		ast->kinds[i] = ASTASIGN;
+		ast->kids[i].lhs = lhs;
+		ast->kids[i].rhs = rhs;
 	}
 
 	return i;

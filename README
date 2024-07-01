@@ -149,3 +149,22 @@ The build script also accepts some subcommands.  They are as follows:
         returns_42′ :: () int {
             return --x;
         }
+
+9.  Assignment statements (not expressions).  Unlike in C, you cannot put
+    an assignment inside of an expression.
+
+        return_42 :: () int {
+            x := 4;
+            y := 2;
+            x = x*10 + y;
+            return x;
+        }
+
+    Due to quirks of the language grammar identifiers may be wrapped in
+    (arbitrary levels of) parenthesis, however assignments are only
+    permitted if the left-hand side with parenthesis removed is a lone
+    identifier.  The rationale behind this is to allow in the future
+    assignments to expressions that return pointers.
+
+        ((x))          = x*10 + y;  /* legal */
+        (true ? x : y) = x*10 + y;  /* illegal */

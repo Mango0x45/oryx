@@ -49,6 +49,10 @@ enum {
 	   ‘return rhs’ */
 	ASTRET,
 
+	/* Assignment,
+	   ‘lhs = rhs’ */
+	ASTASIGN,
+
 	/* Unary negation
 	   ‘-rhs’ */
 	ASTUNNEG,
