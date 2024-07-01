@@ -104,7 +104,7 @@ The build script also accepts some subcommands.  They are as follows:
 
         REALLY_BIG :: 123'456'789'876'543'210;
 
-        pub MyFunc :: () int {
+        pub my_func :: () int {
             return BAR;
         }
 
@@ -129,7 +129,7 @@ The build script also accepts some subcommands.  They are as follows:
            in any order.  This lets us define Inner *after* it gets
            called by the assignment to ‘x’. */
         outer :: () {
-            x := Inner(5);
+            x := inner(5);
 
             inner :: (x: int) int {
                 return x;
