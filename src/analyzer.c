@@ -626,13 +626,12 @@ constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 				case ASTCDECL: {
 					idx_t expr = ctx->ast.kids[sym->i].rhs;
 					assert(expr != AST_EMPTY);
-					MPQCPY(ctx->folds[i], ctx->folds[expr]);
 					if (!MPQ_IS_INIT(ctx->folds[i])) {
 						ctx->si = lvl;
 						(void)constfolddecl(ctx, sym->i);
-						MPQCPY(ctx->folds[i], ctx->folds[expr]);
-						assert(MPQ_IS_INIT(ctx->folds[i]));
 					}
+					MPQCPY(ctx->folds[i], ctx->folds[expr]);
+					assert(MPQ_IS_INIT(ctx->folds[i]));
 					ni = fwdnode(ctx->ast, i);
 					goto out;
 				}
