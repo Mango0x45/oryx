@@ -228,19 +228,19 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		typedef LLVMValueRef llbfn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef,
 		                           const char *);
 		static const struct binop {
-			llbfn *fn[2];
+			llbfn *fn[3];
 			const char *name;
 		} binoptbl[UINT8_MAX + 1] = {
-			['+']       = {{LLVMBuildAdd,  LLVMBuildAdd},  "add"},
-			['&']       = {{LLVMBuildAnd,  LLVMBuildAnd},  "and"},
-			['*']       = {{LLVMBuildMul,  LLVMBuildMul},  "mul"},
-			['|']       = {{LLVMBuildOr,   LLVMBuildOr},   "ior"},
-			['-']       = {{LLVMBuildSub,  LLVMBuildSub},  "sub"},
-			['/']       = {{LLVMBuildUDiv, LLVMBuildSDiv}, "div"},
-			['%']       = {{LLVMBuildURem, LLVMBuildSRem}, "rem"},
-			['~']       = {{LLVMBuildXor,  LLVMBuildXor},  "xor"},
-			[ASTBINSHL] = {{LLVMBuildShl,  LLVMBuildShl},  "shl"},
-			[ASTBINSHR] = {{LLVMBuildLShr, LLVMBuildLShr}, "shr"},
+			['+']       = {{LLVMBuildAdd,  LLVMBuildAdd,  LLVMBuildFAdd}, "add"},
+			['&']       = {{LLVMBuildAnd,  LLVMBuildAnd,  NULL},          "and"},
+			['*']       = {{LLVMBuildMul,  LLVMBuildMul,  LLVMBuildFMul}, "mul"},
+			['|']       = {{LLVMBuildOr,   LLVMBuildOr,   NULL},          "ior"},
+			['-']       = {{LLVMBuildSub,  LLVMBuildSub,  LLVMBuildFSub}, "sub"},
+			['/']       = {{LLVMBuildUDiv, LLVMBuildSDiv, LLVMBuildFDiv}, "div"},
+			['%']       = {{LLVMBuildURem, LLVMBuildSRem, NULL},          "rem"},
+			['~']       = {{LLVMBuildXor,  LLVMBuildXor,  NULL},          "xor"},
+			[ASTBINSHL] = {{LLVMBuildShl,  LLVMBuildShl,  NULL},          "shl"},
+			[ASTBINSHR] = {{LLVMBuildLShr, LLVMBuildLShr, NULL},          "shr"},
 		};
 
 		idx_t lhs = ctx.ast.kids[i].lhs, rhs = ctx.ast.kids[i].rhs;
@@ -254,7 +254,8 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t type, LLVMValueRef *outv)
 		}
 
 		struct binop bo = binoptbl[ctx.ast.kinds[i]];
-		*outv = bo.fn[ctx.types[i].issigned](ctx.bob, vl, vr, bo.name);
+		*outv = bo.fn[ctx.types[i].isfloat ? 2 : ctx.types[i].issigned](
+			ctx.bob, vl, vr, bo.name);
 		return ni;
 	}
 	default:
