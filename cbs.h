@@ -222,21 +222,17 @@ fexists(const char *f)
 int
 fmdcmp(const char *lhs, const char *rhs)
 {
-	int errnol, errnor;
+	int retl, retr;
 	struct stat sbl, sbr;
 
-	stat(lhs, &sbl); errnol = errno;
-	errno = 0;
-	stat(rhs, &sbr); errnor = errno;
+	retl = stat(lhs, &sbl);
+	retr = stat(rhs, &sbr);
 
-	assert(errnol == 0 || errnol == ENOENT);
-	assert(errnor == 0 || errnor == ENOENT);
-
-	if (errnol == ENOENT && errnor == ENOENT)
+	if (retl == -1 && retr == -1)
 		return 0;
-	if (errnol == ENOENT)
+	if (retl == -1)
 		return -1;
-	if (errnor == ENOENT)
+	if (retr == -1)
 		return +1;
 
 	return sbl.st_mtim.tv_sec == sbr.st_mtim.tv_sec
