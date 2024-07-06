@@ -2,76 +2,102 @@
  *)
 
 program
-	: {'pub' declaration}
+	= {'pub', declaration}
 	;
 
 declaration
-	: mutdecl
+	= mutdecl
 	| constdecl
 	;
 
 assignment
-	: expression '=' expression ';'
+	= expression, '=', expression, ';'
 	;
 
 mutdecl
-	: IDENT ':' type ';'
-	| IDENT ':' [type] '=' (expression | ellipsis) ';'
+	= IDENT, ':', type, ';'
+	| IDENT, ':', [type], '=', expression | ellipsis, ';'
 	;
 
 constdecl
-	: IDENT ':' [type] ':' (expression ';' | function)
+	= IDENT, ':', [type], ':', (expression, ';') | function
 	;
 
 function
-	: prototype '{' statement* '}'
+	= prototype, '{', {statement}, '}'
 	;
 
 prototype
-	: '(' ')' [type]
+	= '(', ')', [type]
 	;
 
 statement
-	| declaration
+	= declaration
 	| assignment
-	| 'return' [expression] ';'
+	| 'return', [expression], ';'
 	;
 
 expression
-	: IDENT
-	| NUMERIC
-	| unop expression
-	| expression binop expression
-	| '(' expression ')'
+	= IDENT
+	| number
+	| unop, expression
+	| expression, binop, expression
+	| '(', expression, ')'
 	;
 
 unop
-	: '-'
-	| '&'
-	| '+'
-	| '~'
+	= '-' | '&' | '+' | '~'
 	;
 
 binop
-	: '+'
-	| '!='
-	| '%'
-	| '&'
-	| '*'
-	| '-'
-	| '/'
-	| '<<'
-	| '=='
-	| '>>'
-	| '|'
-	| '~'
+	= '+'  | '!=' | '%' | '&'
+	| '*'  | '-'  | '/' | '<<'
+	| '==' | '>>' | '|' | '~'
+	;
+
+number
+	= integer
+	| floating
+	;
+
+integer
+	= ['0d'], decdigit, {decdigit}
+	|  '0b',  bindigit, {bindigit}
+	|  '0o',  octdigit, {octdigit}
+	|  '0x',  hexdigit, {hexdigit}
+	;
+
+floating
+	=  integer,  '.', [integer]
+	| [integer], '.',  integer
+	;
+
+bindigit
+	= '0' | '1'
+	;
+
+octdigit
+	= '0' | '1' | '2' | '3'
+	| '4' | '5' | '6' | '7'
+	;
+
+decdigit
+	= '0' | '1' | '2' | '3' | '4'
+	| '5' | '6' | '7' | '8' | '9'
+	;
+
+hexdigit
+	= '0' | '1' | '2' | '3'
+	| '4' | '5' | '6' | '7'
+	| '8' | '9' | 'A' | 'B'
+	| 'C' | 'D' | 'E' | 'F'
 	;
 
 type
-	: IDENT
+	= IDENT
 	;
 
 ellipsis
-	: '…'
+	= '…'
 	| '...'
 	;
