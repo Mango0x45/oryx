@@ -126,7 +126,7 @@ The build script also accepts some subcommands.  They are as follows:
     never be supported in the language.
 
         /* Recall that constants (including functions!) can be declared
-           in any order.  This lets us define Inner *after* it gets
+           in any order.  This lets us define inner *after* it gets
            called by the assignment to ‘x’. */
         outer :: () {
             x := inner(5);
