@@ -37,10 +37,12 @@ enum {
 	LEXSTAR   = '*',
 	LEXTILDE  = '~',
 
-	/* We keep these exactly 2 away from each other, because ‘<’ and ‘>’ are 2
-	   away from each other in ASCII.  This gives us a simple mapping from some
-	   token T to the doubled equivalent by doing T += 193. */
+	LEXBANGEQ = UINT8_MAX - 3, /* Not equals */
+
+	/* This gives us a simple mapping from some token T to the doubled
+	   equivalent by doing T += 193. */
 	LEXLANGL_DBL = UINT8_MAX - 2, /* << */
+	LEXEQ_DBL    = UINT8_MAX - 1, /* == */
 	LEXRANGL_DBL = UINT8_MAX - 0, /* >> */
 };
 

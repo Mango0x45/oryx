@@ -76,9 +76,8 @@ lexstring(const uchar *code, size_t codesz)
 
 		/* Single-byte literals */
 		case '%': case '&': case '(': case ')': case '*':
-		case '+': case '-': case ':': case ';': case '=':
-		case '[': case ']': case '{': case '|': case '}':
-		case '~':
+		case '+': case '-': case ':': case ';': case '[':
+		case ']': case '{': case '|': case '}': case '~':
 			data.kinds[data.len++] = ch;
 			break;
 
@@ -88,7 +87,7 @@ lexstring(const uchar *code, size_t codesz)
 
 		/* Single- or double-byte literals */
 		case '/':
-			if (code < end && code[0] == '*') {
+			if (likely(code < end) && code[0] == '*') {
 				if (!skpcmnt(&code, end))
 					err("Unterminated comment at byte %td", code - start);
 				continue;
@@ -96,11 +95,17 @@ lexstring(const uchar *code, size_t codesz)
 
 			data.kinds[data.len++] = ch;
 			break;
-		case '<': case '>':
+		case '!':
+			if (unlikely(code == end || code[0] != '='))
+				goto fallback;
+			code++;
+			data.kinds[data.len++] = LEXBANGEQ;
+			break;
+		case '<': case '=': case '>':
 			data.kinds[data.len++] = ch;
 
 			/* See the comment in lexer.h for where 193 comes from */
-			if (code < end && code[0] == ch) {
+			if (likely(code < end) && code[0] == ch) {
 				code++;
 				data.kinds[data.len - 1] += 193;
 			}

@@ -2,8 +2,8 @@
 #include <stdint.h>
 
 #include "alloc.h"
-#include "symtab.h"
 #include "strview.h"
+#include "tables.h"
 
 struct symtab {
 	symtab_t *child[4];

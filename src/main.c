@@ -12,6 +12,7 @@
 
 #include "alloc.h"
 #include "analyzer.h"
+#include "bitset.h"
 #include "codegen.h"
 #include "common.h"
 #include "errors.h"
@@ -73,19 +74,20 @@ usage:
 	char *src = readfile(argv[0], &srclen);
 
 	aux_t aux;
-	mpq_t *folds;
+	fold_t *folds;
 	scope_t *scps;
+	bitset_t *cnst;
 	arena_t a = NULL;
 
 	lexemes_t toks = lexstring(src, srclen);
 	ast_t ast = parsetoks(toks, &aux);
-	type_t **types = analyzeprog(ast, aux, toks, &a, &scps, &folds);
-	codegen(argv[0], folds, scps, types, ast, aux, toks);
+	type_t **types = analyzeprog(ast, aux, toks, &a, &scps, &folds, &cnst);
+	codegen(argv[0], cnst, folds, scps, types, ast, aux, toks);
 
 #if DEBUG
 	for (size_t i = 0; i < ast.len; i++) {
-		if ((*folds[i])._mp_den._mp_d != NULL)
-			mpq_clear(folds[i]);
+		if ((*folds[i].q)._mp_den._mp_d != NULL)
+			mpq_clear(folds[i].q);
 	}
 
 	free(folds);

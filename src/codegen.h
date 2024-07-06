@@ -7,8 +7,8 @@
 #include "lexer.h"
 #include "parser.h"
 
-void codegen(const char *, mpq_t *, scope_t *, type_t **, ast_t, aux_t,
-             lexemes_t)
+void codegen(const char *, bitset_t *, fold_t *, scope_t *, type_t **, ast_t,
+             aux_t, lexemes_t)
 	__attribute__((nonnull));
 
 #endif /* !ORYX_CODEGEN_H */

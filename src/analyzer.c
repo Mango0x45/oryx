@@ -12,11 +12,12 @@
 
 #include "alloc.h"
 #include "analyzer.h"
+#include "bitset.h"
 #include "common.h"
 #include "errors.h"
 #include "parser.h"
 #include "strview.h"
-#include "symtab.h"
+#include "tables.h"
 #include "types.h"
 
 #define LOG2_10       (3.321928)
@@ -41,11 +42,12 @@ struct azctx {
 
 	ast_t      ast;
 	aux_t      aux;
+	bitset_t  *cnst;
+	fold_t    *folds;
 	lexemes_t  toks;
-	mpq_t     *folds;
 	scopes_t   scps;
-	type_t   **types;
 	typetab_t *ttab;
+	type_t   **types;
 
 	/* The return type of the function being analyzed */
 	type_t *fnret;
@@ -100,6 +102,9 @@ static bool typecompat(type_t *t1, type_t *t2)
 /* Check if the statement at node I in the AST returns from the function */
 static bool returns(ast_t, idx_t i);
 
+static bool memzeroed(void *, size_t)
+	__attribute__((nonnull));
+
 enum {
 	PRIM_INT8,
 	PRIM_INT16,
@@ -114,6 +119,8 @@ enum {
 	PRIM_UINT64,
 	PRIM_UINT128,
 	PRIM_UINT,
+
+	PRIM_BOOL,
 
 	PRIM_RUNE,
 
@@ -143,6 +150,8 @@ static struct {
 	[PRIM_UINT64]  = {SVC("u64"),  {.kind = TYPE_NUM, .size =  8}},
 	[PRIM_UINT128] = {SVC("u128"), {.kind = TYPE_NUM, .size = 16}},
 
+	[PRIM_BOOL] = {SVC("bool"), {.kind = TYPE_BOOL, .size = 1}},
+
 	[PRIM_RUNE] = {SVC("rune"), {.kind = TYPE_NUM, .size = 4, .issigned = true}},
 
 	[PRIM_F16]  = {SVC("f16"),  {.kind = TYPE_NUM, .size =  2, .isfloat = true}},
@@ -151,13 +160,14 @@ static struct {
 	[PRIM_F128] = {SVC("f128"), {.kind = TYPE_NUM, .size = 16, .isfloat = true}},
 };
 
-static type_t NOT_CHECKED = {.kind = TYPE_CHECKING};
-static type_t UNTYPED_INT = {.kind = TYPE_NUM, .size = 0};
-static type_t UNTYPED_FLT = {.kind = TYPE_NUM, .size = 0, .isfloat = true};
+static type_t NOT_CHECKED  = {.kind = TYPE_CHECKING};
+static type_t UNTYPED_BOOL = {.kind = TYPE_BOOL};
+static type_t UNTYPED_INT  = {.kind = TYPE_NUM};
+static type_t UNTYPED_FLT  = {.kind = TYPE_NUM, .isfloat = true};
 
 type_t **
 analyzeprog(ast_t ast, aux_t aux, lexemes_t toks, arena_t *a, scope_t **scps,
-            mpq_t **folds)
+            fold_t **folds, bitset_t **cnst)
 {
 	struct azctx ctx = {
 		.a = a,
@@ -174,15 +184,17 @@ analyzeprog(ast_t ast, aux_t aux, lexemes_t toks, arena_t *a, scope_t **scps,
 
 	if ((ctx.types = calloc(ctx.ast.len, sizeof(*ctx.types))) == NULL)
 		err("calloc:");
+	ctx.cnst = mkbitset(ctx.a, ctx.ast.len);
 
 	gensymtabs(&ctx);
 	analyzeast(&ctx);
 
-	if ((ctx.folds = calloc(ctx.ast.len, sizeof(**ctx.folds))) == NULL)
+	if ((ctx.folds = calloc(ctx.ast.len, sizeof(fold_t))) == NULL)
 		err("calloc:");
 	constfold(&ctx);
-	*scps = ctx.scps.buf;
+	*cnst = ctx.cnst;
 	*folds = ctx.folds;
+	*scps = ctx.scps.buf;
 	return ctx.types;
 }
 
@@ -247,6 +259,9 @@ analyzedecl(struct azctx *ctx, idx_t i)
 	bool isstatic = ctx->ast.kinds[i] <= _AST_DECLS_END
 	             && ctx->aux.buf[ctx->ast.kids[i].lhs].decl.isstatic;
 
+	if (isconst)
+		SETBIT(ctx->cnst, i);
+
 	if (isstatic && isundef)
 		err("analyzer: Static variables may not be undefined");
 
@@ -289,8 +304,16 @@ analyzedecl(struct azctx *ctx, idx_t i)
 
 	if (ltype == NULL) {
 		ltype = rtype;
-		if (ctx->ast.kinds[i] == ASTDECL && rtype->size == 0)
-			ltype = &primitives[rtype == &UNTYPED_INT ? PRIM_INT : PRIM_F64].t;
+		if (ctx->ast.kinds[i] == ASTDECL && rtype->size == 0) {
+			if (rtype == &UNTYPED_INT)
+				ltype = &primitives[PRIM_INT].t;
+			else if (rtype == &UNTYPED_FLT)
+				ltype = &primitives[PRIM_F64].t;
+			else if (rtype == &UNTYPED_BOOL)
+				ltype = &primitives[PRIM_BOOL].t;
+			else
+				__builtin_unreachable();
+		}
 	} else if (rtype != NULL && !typecompat(ltype, rtype))
 		err("analyzer: Type mismatch");
 
@@ -346,6 +369,7 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 
 	switch (ctx->ast.kinds[i]) {
 	case ASTNUMLIT: {
+		SETBIT(ctx->cnst, i);
 		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
 		ctx->types[i] = memchr(sv.p, '.', sv.len) != NULL ? &UNTYPED_FLT
 		                                                  : &UNTYPED_INT;
@@ -375,6 +399,7 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 					    SV_PRI_ARGS(sv));
 				}
 
+				SET_DST_IF_SRC(ctx->cnst, i, sym->i);
 				ctx->types[i] = ctx->types[sym->i];
 				return fwdnode(ctx->ast, i);
 			}
@@ -387,6 +412,7 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 		idx_t ni, rhs;
 		rhs = ctx->ast.kids[i].rhs;
 		ni = analyzeexpr(ctx, rhs);
+		SET_DST_IF_SRC(ctx->cnst, i, rhs);
 		type_t *t = ctx->types[rhs];
 		if (ctx->ast.kinds[i] == ASTUNNEG
 		    && (t->kind != TYPE_NUM || !t->issigned))
@@ -405,9 +431,11 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 	case ASTBINADD:
 	case ASTBINAND:
 	case ASTBINDIV:
+	case ASTBINEQ:
+	case ASTBINIOR:
 	case ASTBINMOD:
 	case ASTBINMUL:
-	case ASTBINIOR:
+	case ASTBINNEQ:
 	case ASTBINSHL:
 	case ASTBINSHR:
 	case ASTBINSUB:
@@ -418,6 +446,9 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 		(void)analyzeexpr(ctx, lhs);
 		idx_t ni = analyzeexpr(ctx, rhs);
 
+		if (TESTBIT(ctx->cnst, lhs) && TESTBIT(ctx->cnst, rhs))
+			SETBIT(ctx->cnst, i);
+
 		bool isshift = ctx->ast.kinds[i] == ASTBINSHL
 		            || ctx->ast.kinds[i] == ASTBINSHR;
 		if (!isshift && !typecompat(ctx->types[lhs], ctx->types[rhs]))
@@ -426,6 +457,11 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 		static const bool int_only[UINT8_MAX + 1] = {
 			[ASTBINAND] = true, [ASTBINIOR] = true, [ASTBINMOD] = true,
 			[ASTBINSHL] = true, [ASTBINSHR] = true, [ASTBINXOR] = true,
+		};
+
+		static const bool logical[UINT8_MAX + 1] = {
+			[ASTBINEQ] = true,
+			[ASTBINNEQ] = true,
 		};
 
 		if (int_only[ctx->ast.kinds[i]]
@@ -448,13 +484,16 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 		   There is an exception for the left- and right shift operators.
 		   Expressions for these operators always take the type of x, and
 		   y can be any integer type. */
-		if (isshift)
+		if (isshift) {
 			ctx->types[i] = ctx->types[lhs];
-		else {
-			ctx->types[i] = ctx->types[lhs]->size != 0 ? ctx->types[lhs]
-			                                           : ctx->types[rhs];
-			ctx->types[i]->isfloat = ctx->types[lhs]->isfloat
-			                      || ctx->types[rhs]->isfloat;
+		} else if (logical[ctx->ast.kinds[i]]) {
+			ctx->types[i] = TESTBIT(ctx->cnst, lhs) && TESTBIT(ctx->cnst, rhs)
+			                  ? &UNTYPED_BOOL
+			                  : &primitives[PRIM_BOOL].t;
+		} else if (TESTBIT(ctx->cnst, lhs) && TESTBIT(ctx->cnst, rhs)) {
+			ctx->types[i] = ctx->types[ctx->types[lhs]->isfloat ? lhs : rhs];
+		} else {
+			ctx->types[i] = ctx->types[TESTBIT(ctx->cnst, lhs) ? rhs : lhs];
 		}
 		return ni;
 	}
@@ -549,7 +588,7 @@ constfoldblk(struct azctx *ctx, idx_t i)
 idx_t
 constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 {
-	if (MPQ_IS_INIT(ctx->folds[i]))
+	if (!memzeroed(ctx->folds[i].data, sizeof(ctx->folds[i].data)))
 		return fwdnode(ctx->ast, i);
 
 	idx_t ni;
@@ -559,7 +598,7 @@ constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 	case ASTFN:
 		return constfoldblk(ctx, ctx->ast.kids[i].rhs);
 	case ASTNUMLIT: {
-		mpq_init(ctx->folds[i]);
+		mpq_init(ctx->folds[i].q);
 
 		strview_t sv = ctx->toks.strs[ctx->ast.lexemes[i]];
 		char *buf = tmpalloc(ctx->s, sv.len + 1, 1);
@@ -589,13 +628,13 @@ constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 #endif
 				mpf_set_str(x, buf, 10);
 			assert(ret == 0);
-			mpq_set_f(ctx->folds[i], x);
+			mpq_set_f(ctx->folds[i].q, x);
 			mpf_clear(x);
 		} else {
 #if DEBUG
 			int ret =
 #endif
-				mpq_set_str(ctx->folds[i], buf, 10);
+				mpq_set_str(ctx->folds[i].q, buf, 10);
 			assert(ret == 0);
 		}
 		ni = fwdnode(ctx->ast, i);
@@ -626,12 +665,14 @@ constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 				case ASTCDECL: {
 					idx_t expr = ctx->ast.kids[sym->i].rhs;
 					assert(expr != AST_EMPTY);
-					if (!MPQ_IS_INIT(ctx->folds[i])) {
+					if (memzeroed(ctx->folds[i].data, sizeof(ctx->folds[i].data))) {
 						ctx->si = lvl;
 						(void)constfolddecl(ctx, sym->i);
 					}
-					MPQCPY(ctx->folds[i], ctx->folds[expr]);
-					assert(MPQ_IS_INIT(ctx->folds[i]));
+					if (ctx->types[i]->kind == TYPE_NUM)
+						MPQCPY(ctx->folds[i].q, ctx->folds[expr].q);
+					else if (ctx->types[i]->kind == TYPE_BOOL)
+						ctx->folds[i].b = ctx->folds[expr].b;
 					ni = fwdnode(ctx->ast, i);
 					goto out;
 				}
@@ -645,17 +686,16 @@ out:
 	}
 	case ASTUNCMPL: {
 		ni = constfoldexpr(ctx, ctx->types[i], ctx->ast.kids[i].rhs);
-		if (MPQ_IS_INIT(ctx->folds[ctx->ast.kids[i].rhs]))
+		if (TESTBIT(ctx->cnst, ctx->ast.kids[i].rhs))
 			err("analyzer: Cannot perform bitwise complement of constant");
 		break;
 	}
 	case ASTUNNEG: {
 		idx_t rhs = ctx->ast.kids[i].rhs;
 		ni = constfoldexpr(ctx, ctx->types[i], rhs);
-		mpq_t *x = ctx->folds + rhs;
-		if (MPQ_IS_INIT(*x)) {
-			MPQCPY(ctx->folds[i], *x);
-			mpq_neg(ctx->folds[i], ctx->folds[i]);
+		if (TESTBIT(ctx->cnst, rhs)) {
+			MPQCPY(ctx->folds[i].q, ctx->folds[rhs].q);
+			mpq_neg(ctx->folds[i].q, ctx->folds[i].q);
 		}
 		break;
 	}
@@ -673,10 +713,10 @@ out:
 		rhs = ctx->ast.kids[i].rhs;
 		(void)constfoldexpr(ctx, ctx->types[i], lhs);
 		ni = constfoldexpr(ctx, ctx->types[i], rhs);
-		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
-			mpq_init(ctx->folds[i]);
-			mpq_fns[ctx->ast.kinds[i]](ctx->folds[i], ctx->folds[lhs],
-			                           ctx->folds[rhs]);
+		if (TESTBIT(ctx->cnst, lhs) && TESTBIT(ctx->cnst, rhs)) {
+			mpq_init(ctx->folds[i].q);
+			mpq_fns[ctx->ast.kinds[i]](ctx->folds[i].q, ctx->folds[lhs].q,
+			                           ctx->folds[rhs].q);
 		}
 		break;
 	}
@@ -688,13 +728,14 @@ out:
 		(void)constfoldexpr(ctx, ctx->types[i], lhs);
 		ni = constfoldexpr(ctx, ctx->types[i], rhs);
 
-		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
-			mpq_init(ctx->folds[i]);
+		if (TESTBIT(ctx->cnst, lhs) && TESTBIT(ctx->cnst, rhs)) {
+			mpq_init(ctx->folds[i].q);
 			if (ctx->types[i]->isfloat)
-				mpq_div(ctx->folds[i], ctx->folds[lhs], ctx->folds[rhs]);
+				mpq_div(ctx->folds[i].q, ctx->folds[lhs].q, ctx->folds[rhs].q);
 			else {
-				mpz_tdiv_q(mpq_numref(ctx->folds[i]), mpq_numref(ctx->folds[lhs]),
-				           mpq_numref(ctx->folds[rhs]));
+				mpz_tdiv_q(mpq_numref(ctx->folds[i].q),
+				           mpq_numref(ctx->folds[lhs].q),
+				           mpq_numref(ctx->folds[rhs].q));
 			}
 		}
 		break;
@@ -718,12 +759,13 @@ out:
 		(void)constfoldexpr(ctx, ctx->types[i], lhs);
 		ni = constfoldexpr(ctx, ctx->types[i], rhs);
 
-		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
-			assert(MPQ_IS_WHOLE(ctx->folds[lhs]));
-			assert(MPQ_IS_WHOLE(ctx->folds[rhs]));
-			mpq_init(ctx->folds[i]);
-			mpz_fns[ctx->ast.kinds[i]](mpq_numref(ctx->folds[i]), mpq_numref(ctx->folds[lhs]),
-			                      mpq_numref(ctx->folds[rhs]));
+		if (TESTBIT(ctx->cnst, lhs) && TESTBIT(ctx->cnst, rhs)) {
+			assert(MPQ_IS_WHOLE(ctx->folds[lhs].q));
+			assert(MPQ_IS_WHOLE(ctx->folds[rhs].q));
+			mpq_init(ctx->folds[i].q);
+			mpz_fns[ctx->ast.kinds[i]](mpq_numref(ctx->folds[i].q),
+			                           mpq_numref(ctx->folds[lhs].q),
+			                           mpq_numref(ctx->folds[rhs].q));
 		}
 		break;
 	}
@@ -742,18 +784,19 @@ out:
 		(void)constfoldexpr(ctx, ctx->types[lhs], lhs);
 		ni = constfoldexpr(ctx, ctx->types[rhs], rhs);
 
-		if (MPQ_IS_INIT(ctx->folds[rhs])) {
-			if (mpq_sgn(ctx->folds[rhs]) == -1)
+		if (TESTBIT(ctx->cnst, rhs)) {
+			if (mpq_sgn(ctx->folds[rhs].q) == -1)
 				err("analyzer: Cannot shift by negative value");
+			/* TODO: Assert that in X<<Y, Y is ≤ widthof(X) */
 		}
 
-		if (MPQ_IS_INIT(ctx->folds[lhs]) && MPQ_IS_INIT(ctx->folds[rhs])) {
+		if (TESTBIT(ctx->cnst, lhs) && TESTBIT(ctx->cnst, rhs)) {
 			mpz_ptr cur_z, lhs_z, rhs_z;
-			cur_z = mpq_numref(ctx->folds[i]);
-			lhs_z = mpq_numref(ctx->folds[lhs]);
-			rhs_z = mpq_numref(ctx->folds[rhs]);
+			cur_z = mpq_numref(ctx->folds[i].q);
+			lhs_z = mpq_numref(ctx->folds[lhs].q);
+			rhs_z = mpq_numref(ctx->folds[rhs].q);
 
-			mpq_init(ctx->folds[i]);
+			mpq_init(ctx->folds[i].q);
 			if (mpz_cmp_ui(rhs_z, ULONG_MAX) > 0)
 				err("analyzer: Shift oprand too large");
 			mp_bitcnt_t shftcnt = mpz_get_ui(rhs_z);
@@ -761,19 +804,52 @@ out:
 		}
 		break;
 	}
+	case ASTBINEQ:
+	case ASTBINNEQ: {
+		idx_t lhs, rhs;
+		lhs = ctx->ast.kids[i].lhs;
+		rhs = ctx->ast.kids[i].rhs;
+
+		(void)constfoldexpr(ctx, ctx->types[i], lhs);
+		ni = constfoldexpr(ctx, ctx->types[i], rhs);
+
+		bool both_oprs_const = TESTBIT(ctx->cnst, lhs)
+		                    && TESTBIT(ctx->cnst, rhs);
+		bool can_constfold_ints = ctx->types[lhs]->kind == TYPE_NUM
+		                       && both_oprs_const;
+		bool can_constfold_bools = ctx->types[lhs]->kind == TYPE_BOOL
+		                        && both_oprs_const;
+
+		bool eq = can_constfold_ints
+		            ? mpq_equal(ctx->folds[lhs].q, ctx->folds[rhs].q)
+		        : can_constfold_bools ? ctx->folds[lhs].b == ctx->folds[rhs].b
+		                              : false;
+
+		if (can_constfold_ints || can_constfold_bools) {
+			ctx->folds[i].set = true;
+			ctx->folds[i].b = (ctx->ast.kinds[i] == ASTBINEQ && eq)
+			               || (ctx->ast.kinds[i] == ASTBINNEQ && !eq);
+		}
+		break;
+	}
 	default:
 		__builtin_unreachable();
 	}
 
-	if (MPQ_IS_INIT(ctx->folds[i]) && !T->issigned && mpq_sgn(ctx->folds[i]) == -1)
+	if (ctx->types[i]->kind == TYPE_NUM && TESTBIT(ctx->cnst, i)
+	    && !T->issigned && mpq_sgn(ctx->folds[i].q) == -1)
+	{
 		err("analyzer: Cannot convert negative value to unsigned type");
+	}
 
-	if (T->size != 0 && !T->isfloat && MPQ_IS_INIT(ctx->folds[i])) {
-		if (!MPQ_IS_WHOLE(ctx->folds[i]))
+	if (ctx->types[i]->kind == TYPE_NUM && TESTBIT(ctx->cnst, i)
+	    && T->size != 0 && !T->isfloat)
+	{
+		if (!MPQ_IS_WHOLE(ctx->folds[i].q))
 			err("analyzer: Invalid integer");
 
 		int cmp;
-		mpz_ptr num = mpq_numref(ctx->folds[i]);
+		mpz_ptr num = mpq_numref(ctx->folds[i].q);
 		if (T->size < sizeof(unsigned long)) {
 			unsigned long x = 1UL << (T->size * 8 - T->issigned);
 			cmp = mpz_cmp_ui(num, x - 1);
@@ -834,6 +910,10 @@ typecompat(type_t *lhs, type_t *rhs)
 	if (lhs == rhs)
 		return true;
 
+	/* Boolean types are only compatible with boolean types */
+	if (lhs->kind == TYPE_BOOL || rhs->kind == TYPE_BOOL)
+		return lhs->kind == TYPE_BOOL && rhs->kind == TYPE_BOOL;
+
 	/* Function types are compatible if they have the same parameter- and
 	   return types */
 	if (lhs->kind == TYPE_FN && rhs->kind == TYPE_FN)
@@ -851,4 +931,11 @@ typecompat(type_t *lhs, type_t *rhs)
 	   and sign and are either both integral or both floats */
 	return lhs->issigned == rhs->issigned && lhs->isfloat == rhs->isfloat
 	    && lhs->size == rhs->size;
+}
+
+bool
+memzeroed(void *p, size_t n)
+{
+	uchar *m = p;
+	return (*m == 0) && memcmp(m, m + 1, n - 1) == 0;
 }

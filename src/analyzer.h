@@ -2,14 +2,16 @@
 #define ORYX_ANALYZER_H
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <gmp.h>
 
 #include "alloc.h"
+#include "bitset.h"
 #include "lexer.h"
 #include "parser.h"
-#include "symtab.h"
+#include "tables.h"
 #include "types.h"
 
 /* The different base types */
@@ -18,6 +20,7 @@ enum {
 	   detecting cyclic definitions. */
 	TYPE_CHECKING,
 
+	TYPE_BOOL,
 	TYPE_NUM,
 	TYPE_FN,
 
@@ -32,7 +35,14 @@ typedef struct {
 	symtab_t *map;
 } scope_t;
 
-type_t **analyzeprog(ast_t, aux_t, lexemes_t, arena_t *, scope_t **, mpq_t **)
+typedef union {
+	char data[sizeof(mpq_t)];
+	mpq_t q;
+	struct { bool b, set; };
+} fold_t;
+
+type_t **analyzeprog(ast_t, aux_t, lexemes_t, arena_t *, scope_t **, fold_t **,
+                     bitset_t **)
 	__attribute__((returns_nonnull, nonnull));
 
 #endif /* !ORYX_ANALYZER_H */

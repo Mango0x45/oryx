@@ -70,9 +70,11 @@ fwdnode(ast_t ast, idx_t i)
 		case ASTBINADD:
 		case ASTBINAND:
 		case ASTBINDIV:
+		case ASTBINEQ:
 		case ASTBINIOR:
 		case ASTBINMOD:
 		case ASTBINMUL:
+		case ASTBINNEQ:
 		case ASTBINSHL:
 		case ASTBINSHR:
 		case ASTBINSUB:
@@ -88,7 +90,7 @@ fwdnode(ast_t ast, idx_t i)
 		case ASTTYPE:
 			return i + 1;
 		case ASTFNPROTO:
-			assert("analyzer: Not reachable");
+		default:
 			__builtin_unreachable();
 		}
 	}
@@ -284,8 +286,18 @@ idx_t
 parseexprinc(ast_t *ast, lexemes_t toks, idx_t lhs, int minprec)
 {
 	static const int prectbl[UINT8_MAX + 1] = {
-		['+'] = 1, ['-'] = 1, ['|'] = 1, ['~'] = 1,          ['%'] = 2,
-		['&'] = 2, ['*'] = 2, ['/'] = 2, [LEXLANGL_DBL] = 2, [LEXRANGL_DBL] = 2,
+		[LEXBANGEQ] = 3,
+		[LEXEQ_DBL] = 3,
+		['+'] = 4,
+		['-'] = 4,
+		['|'] = 4,
+		['~'] = 4,
+		['%'] = 5,
+		['&'] = 5,
+		['*'] = 5,
+		['/'] = 5,
+		[LEXLANGL_DBL] = 5,
+		[LEXRANGL_DBL] = 5,
 	};
 
 	uint8_t op = toks.kinds[toksidx];

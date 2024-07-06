@@ -12,6 +12,7 @@
 
 #include "alloc.h"
 #include "analyzer.h"
+#include "bitset.h"
 #include "common.h"
 #include "errors.h"
 #include "parser.h"
@@ -34,12 +35,13 @@ struct cgctx {
 	arena_t   *a;
 	scratch_t *s;
 
-	mpq_t     *folds;
-	scope_t   *scps;
-	type_t    **types;
 	ast_t     ast;
 	aux_t     aux;
+	bitset_t *cnst;
+	fold_t   *folds;
 	lexemes_t toks;
+	scope_t  *scps;
+	type_t  **types;
 
 	LLVMBuilderRef    bob;
 	LLVMContextRef    ctx;
@@ -60,8 +62,8 @@ extern bool lflag, sflag;
 extern const char *oflag;
 
 void
-codegen(const char *file, mpq_t *folds, scope_t *scps, type_t **types,
-        ast_t ast, aux_t aux, lexemes_t toks)
+codegen(const char *file, bitset_t *cnst, fold_t *folds, scope_t *scps,
+        type_t **types, ast_t ast, aux_t aux, lexemes_t toks)
 {
 	LLVM_TARGET_INIT(AArch64);
 	LLVM_TARGET_INIT(X86);
@@ -81,12 +83,13 @@ codegen(const char *file, mpq_t *folds, scope_t *scps, type_t **types,
 		.a = &(arena_t){0},
 		.s = &(scratch_t){0},
 
-		.folds = folds,
-		.scps  = scps,
-		.types = types,
 		.ast   = ast,
 		.aux   = aux,
+		.cnst  = cnst,
+		.folds = folds,
+		.scps  = scps,
 		.toks  = toks,
+		.types = types,
 
 		.ctx = llctx,
 		.mod = llmod,
@@ -143,13 +146,12 @@ static idx_t codegendecl(struct cgctx ctx, idx_t);
 idx_t
 codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 {
-	/* If true, implies numeric constant */
-	if (MPQ_IS_INIT(ctx.folds[i]) && !T->isfloat) {
+	if (T->kind == TYPE_NUM && TESTBIT(ctx.cnst, i) && !T->isfloat) {
 		char buf[40 /* The max value of a u128 is length 39 */];
-		mpz_get_str(buf, 10, mpq_numref(ctx.folds[i]));
+		mpz_get_str(buf, 10, mpq_numref(ctx.folds[i].q));
 		*outv = LLVMConstIntOfString(type2llvm(ctx, T), buf, 10);
 		return fwdnode(ctx.ast, i);
-	} else if (MPQ_IS_INIT(ctx.folds[i]) /* && type.isfloat */) {
+	} else if (T->kind == TYPE_NUM && TESTBIT(ctx.cnst, i)) {
 		char *s, *buf;
 		size_t len;
 		mpf_t x;
@@ -175,7 +177,7 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		}
 
 		mpf_init2(x, prec);
-		mpf_set_q(x, ctx.folds[i]);
+		mpf_set_q(x, ctx.folds[i].q);
 
 		s = mpf_get_str(NULL, &e, 10, 0, x);
 		len = strlen(s);
@@ -190,6 +192,9 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 
 		free(s);
 		mpf_clear(x);
+		return fwdnode(ctx.ast, i);
+	} else if (T->kind == TYPE_BOOL && TESTBIT(ctx.cnst, i)) {
+		*outv = LLVMConstInt(type2llvm(ctx, ctx.types[i]), ctx.folds[i].b, false);
 		return fwdnode(ctx.ast, i);
 	}
 
@@ -255,6 +260,24 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		struct binop bo = binoptbl[ctx.ast.kinds[i]];
 		*outv = bo.fn[ctx.types[i]->isfloat ? 2 : ctx.types[i]->issigned](
 			ctx.bob, vl, vr, bo.name);
+		return ni;
+	}
+	case ASTBINEQ:
+	case ASTBINNEQ: {
+		static const struct binop {
+			LLVMIntPredicate pred;
+			const char *name;
+		} binoptbl[UINT8_MAX + 1] = {
+			[ASTBINEQ]  = {LLVMIntEQ, "ieq"},
+			[ASTBINNEQ] = {LLVMIntNE, "ine"},
+		};
+
+		idx_t lhs = ctx.ast.kids[i].lhs, rhs = ctx.ast.kids[i].rhs;
+		LLVMValueRef vl, vr;
+		(void)codegentypedexpr(ctx, lhs, ctx.types[i], &vl);
+		idx_t ni = codegentypedexpr(ctx, rhs, ctx.types[i], &vr);
+		struct binop bo = binoptbl[ctx.ast.kinds[i]];
+		*outv = LLVMBuildICmp(ctx.bob, bo.pred, vl, vr, bo.name);
 		return ni;
 	}
 	default:
@@ -451,8 +474,8 @@ LLVMTypeRef
 type2llvm(struct cgctx ctx, type_t *T)
 {
 	switch (T->kind) {
-	case TYPE_FN:
-		err("codegen: %s: Not implemented for function types", __func__);
+	case TYPE_BOOL:
+		return LLVMInt1TypeInContext(ctx.ctx);
 	case TYPE_NUM:
 		assert(T->size != 0);
 		assert((unsigned)T->size * 8 <= 128);

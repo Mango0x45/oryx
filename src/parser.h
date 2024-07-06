@@ -97,9 +97,17 @@ enum {
 	   ‘lhs & rhs’ */
 	ASTBINIOR = '|',
 
+	/* Binary not equals
+	   ‘lhs != rhs’ */
+	ASTBINNEQ = UINT8_MAX - 3,
+
 	/* Binary left shift
 	   ‘lhs << rhs’ */
 	ASTBINSHL = UINT8_MAX - 2,
+
+	/* Binary equals
+	   ‘lhs == rhs’ */
+	ASTBINEQ = UINT8_MAX - 1,
 
 	/* Binary right shift
 	   ‘lhs >> rhs’ */
