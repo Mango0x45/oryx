@@ -11,7 +11,7 @@
 #if DEBUG
 #	define _ARENA_DFLT_CAP (8)
 #else
-#	define _ARENA_DFLT_CAP (2 * 1024)
+#	define _ARENA_DFLT_CAP (64 * 1024)
 #endif
 
 typedef struct _arena *arena_t;
