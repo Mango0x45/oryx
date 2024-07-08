@@ -386,7 +386,7 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 			err("parser: Expected semicolon");
 	} else if (toks.kinds[toksidx + 1] == LEXCOLON) {
 		i = parsedecl(ast, aux, toks, false);
-	} else /* assignment */ {
+	} else /* assignment or funcall */ {
 		idx_t lhs, rhs;
 		i = astalloc(ast);
 		lhs = parseexpr(ast, toks, 0);
