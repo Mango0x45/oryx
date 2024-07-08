@@ -1,0 +1,17 @@
+/* Basic definitions, with Unicode support */
+π :: 3.14159265358979323846264338327950288419716939937510582097494459;
+MEANING_OF_LIFE :: 42;
+
+/* You can use them in expressions, and they can be defined
+   out-of-order */
+foo :: () int {
+	x := MEANING_OF_LIFE;
+	return x + MOL_DBL;
+	MOL_DBL :: MEANING_OF_LIFE * 2;
+}
+
+/* You can perform constant shadowing */
+bar :: () int {
+	MEANING_OF_LIFE :: MEANING_OF_LIFE + 1;
+	return MEANING_OF_LIFE;
+}

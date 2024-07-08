@@ -1,0 +1,17 @@
+/* Globals without initializers */
+x: int;
+y: u16;
+
+/* Globals with initializers */
+x′ := 42;
+y′ := 69;
+
+/* Globals with initializers and types */
+x″: int = 42;
+y″: u16 = 69;
+
+/* Globals can be shadowed */
+foo :: () int {
+	x := x + 1;
+	return x; /* 1 */
+}

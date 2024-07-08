@@ -1,0 +1,13 @@
+fn1 :: () int {
+	/* You can create and use nested functions */
+	fn2 :: () int {
+		return fn1() * fn1();
+
+		/* Nested functions shadow parent functions */
+		fn1 :: () int {
+			return 42;
+		}
+	}
+
+	return fn2();
+}
