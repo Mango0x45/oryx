@@ -151,9 +151,9 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		goto callstmt;
 
 	if (T->kind == TYPE_NUM && TESTBIT(ctx.cnst, i) && !T->isfloat) {
-		char buf[40 /* The max value of a u128 is length 39 */];
-		mpz_get_str(buf, 10, mpq_numref(ctx.folds[i].q));
-		*outv = LLVMConstIntOfString(type2llvm(ctx, T), buf, 10);
+		char buf[128/4 + 1];
+		mpz_get_str(buf, 16, mpq_numref(ctx.folds[i].q));
+		*outv = LLVMConstIntOfString(type2llvm(ctx, T), buf, 16);
 		return fwdnode(ctx.ast, i);
 	} else if (T->kind == TYPE_NUM && TESTBIT(ctx.cnst, i)) {
 		char *s, *buf;
