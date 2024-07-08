@@ -507,6 +507,8 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 		idx_t ni, lhs = ctx->ast.kids[i].lhs;
 		ni = analyzeexpr(ctx, lhs);
 		ctx->types[i] = ctx->types[lhs]->ret;
+		if (ctx->types[i] == NULL && ctx->ast.kinds[i - 1] != ASTCALLSTMT)
+			err("analyzer: Function without return type cannot be called in expression");
 		return ni;
 	}
 	default:
@@ -575,6 +577,8 @@ constfoldstmt(struct azctx *ctx, idx_t i)
 	case ASTASIGN:
 	case ASTRET:
 		return constfoldexpr(ctx, ctx->types[i], ctx->ast.kids[i].rhs);
+	case ASTCALLSTMT:
+		return constfoldexpr(ctx, ctx->types[i], i + 1);
 	default:
 		__builtin_unreachable();
 	}
@@ -607,6 +611,7 @@ constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 	switch (ctx->ast.kinds[i]) {
 	case ASTFUNCALL:
 		/* TODO: Constfold funcall params */
+		ni = fwdnode(ctx->ast, i);
 		break;
 	case ASTFN:
 		return constfoldblk(ctx, ctx->ast.kids[i].rhs);
@@ -848,6 +853,10 @@ out:
 	default:
 		__builtin_unreachable();
 	}
+
+	/* Expression has no type, such as a function call with no return value */
+	if (ctx->types[i] == NULL)
+		return ni;
 
 	if (ctx->types[i]->kind == TYPE_NUM && TESTBIT(ctx->cnst, i)
 	    && !T->issigned && mpq_sgn(ctx->folds[i].q) == -1)
