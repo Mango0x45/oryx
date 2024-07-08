@@ -1,0 +1,18 @@
+1.  Nested functions should inherit constants from parent scopes, but not
+    local variables.  At the moment the former works, but when trying to
+    (incorrectly) use a local variable from an outer scope in an inner
+    function, the compiler crashes:
+
+        foo :: () {
+            x := 42;
+            X :: 69;
+
+            bar :: () int { return x; } /* not fine; breaks */
+            baz :: () int { return X; } /* totally fine */
+        }
+
+    This is presumably due to the compiler maintaining a single tree of
+    scopes where a scope contains information for both constants and
+    variables.  If this is indeed the cause, then there should most
+    probably be separate scope-trees; one which has scopes for constants,
+    and one which has scopes for variables.

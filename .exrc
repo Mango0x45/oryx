@@ -1,2 +1,2 @@
 set makeprg=./make
-autocmd BufRead README setlocal et tw=73
+autocmd BufRead BUGS,README setlocal et tw=73
