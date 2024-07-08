@@ -111,15 +111,10 @@ codegen(const char *file, bitset_t *cnst, fold_t *folds, scope_t *scps,
 	LLVMDisposeMessage(error);
 
 	if (lflag) {
-		if (oflag == NULL)
-			oflag = "/dev/stdout";
-		/* Stupid hack to make this work with Neovim */
-		if (LLVMPrintModuleToFile(llmod, oflag, &error) == 1) {
-			if (errno != ENXIO)
-				err("codegen: %s: %s", oflag, error);
-			LLVMDisposeMessage(error);
-			LLVMDumpModule(llmod);
-		}
+		/* Needlessly inefficient… but that’s LLVM for you */
+		char *s = LLVMPrintModuleToString(llmod);
+		fputs(s, stdout);
+		LLVMDisposeMessage(s);
 	} else {
 		LLVMCodeGenFileType ft;
 		const char *dst = oflag == NULL ? "out.o" : oflag;
