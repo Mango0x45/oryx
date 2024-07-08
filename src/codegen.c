@@ -117,6 +117,7 @@ codegen(const char *file, bitset_t *cnst, fold_t *folds, scope_t *scps,
 		if (LLVMPrintModuleToFile(llmod, oflag, &error) == 1) {
 			if (errno != ENXIO)
 				err("codegen: %s: %s", oflag, error);
+			LLVMDisposeMessage(error);
 			LLVMDumpModule(llmod);
 		}
 	} else {
