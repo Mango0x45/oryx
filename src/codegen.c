@@ -198,8 +198,8 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		mpf_clear(x);
 		return fwdnode(ctx.ast, i);
 	} else if (T->kind == TYPE_BOOL && TESTBIT(ctx.cnst, i)) {
-		*outv = LLVMConstInt(type2llvm(ctx, ctx.types[i]), ctx.folds[i].b,
-		                     false);
+		LLVMTypeRef T = LLVMInt1TypeInContext(ctx.ctx);
+		*outv = LLVMConstInt(T, ctx.folds[i].b, false);
 		return fwdnode(ctx.ast, i);
 	}
 
