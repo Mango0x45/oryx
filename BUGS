@@ -20,3 +20,13 @@
 2.  Recursive functions crash the compiler.
 
         foo :: () { return foo(); } /* breaks */
+
+3.  Global variables are broken both when being declared and assigned to
+    function calls and other globals.  Both of these cased should be
+    illegal; globals if assigned at declaration should only be able to be
+    assigned to constant expressions.
+
+        foo :: () int { return 42; }
+        x := 5;
+        x′ := x;     /* breaks */
+        x″ := foo(); /* breaks */
