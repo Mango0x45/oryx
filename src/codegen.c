@@ -109,10 +109,12 @@ codegen(const char *file, bitset_t *cnst, fold_t *folds, scope_t *scps,
 		err("codegen: %s", error);
 
 	if (lflag) {
-		if (oflag == NULL)
-			LLVMDumpModule(ctx.mod);
-		else if (LLVMPrintModuleToFile(llmod, oflag, &error) == 1)
+		if (LLVMPrintModuleToFile(llmod, oflag == NULL ? "/dev/stdout" : oflag,
+		                          &error)
+		    == 1)
+		{
 			err("codegen: %s", error);
+		}
 	} else {
 		LLVMCodeGenFileType ft;
 		const char *dst = oflag == NULL ? "out.o" : oflag;
