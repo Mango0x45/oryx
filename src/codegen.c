@@ -234,22 +234,20 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 	case ASTBINSHR:
 	case ASTBINSUB:
 	case ASTBINXOR: {
-		typedef LLVMValueRef llbfn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef,
-		                           const char *);
 		static const struct binop {
-			llbfn *fn[3];
+			LLVMOpcode op[3];
 			const char *name;
 		} binoptbl[UINT8_MAX + 1] = {
-			['+']       = {{LLVMBuildAdd,  LLVMBuildAdd,  LLVMBuildFAdd}, "add"},
-			['&']       = {{LLVMBuildAnd,  LLVMBuildAnd,  NULL},          "and"},
-			['*']       = {{LLVMBuildMul,  LLVMBuildMul,  LLVMBuildFMul}, "mul"},
-			['|']       = {{LLVMBuildOr,   LLVMBuildOr,   NULL},          "ior"},
-			['-']       = {{LLVMBuildSub,  LLVMBuildSub,  LLVMBuildFSub}, "sub"},
-			['/']       = {{LLVMBuildUDiv, LLVMBuildSDiv, LLVMBuildFDiv}, "div"},
-			['%']       = {{LLVMBuildURem, LLVMBuildSRem, NULL},          "rem"},
-			['~']       = {{LLVMBuildXor,  LLVMBuildXor,  NULL},          "xor"},
-			[ASTBINSHL] = {{LLVMBuildShl,  LLVMBuildShl,  NULL},          "shl"},
-			[ASTBINSHR] = {{LLVMBuildLShr, LLVMBuildLShr, NULL},          "shr"},
+			['+']       = {{LLVMAdd,  LLVMAdd,  LLVMAdd},  "add"},
+			['&']       = {{LLVMAnd,  LLVMAnd,  -1},       "and"},
+			['*']       = {{LLVMMul,  LLVMMul,  LLVMFMul}, "mul"},
+			['|']       = {{LLVMOr,   LLVMOr,   -1},       "ior"},
+			['-']       = {{LLVMSub,  LLVMSub,  LLVMFSub}, "sub"},
+			['/']       = {{LLVMUDiv, LLVMSDiv, LLVMFDiv}, "div"},
+			['%']       = {{LLVMURem, LLVMSRem, -1},       "rem"},
+			['~']       = {{LLVMXor,  LLVMXor,  -1},       "xor"},
+			[ASTBINSHL] = {{LLVMShl,  LLVMShl,  -1},       "shl"},
+			[ASTBINSHR] = {{LLVMLShr, LLVMLShr, -1},       "shr"},
 		};
 
 		idx_t lhs = ctx.ast.kids[i].lhs, rhs = ctx.ast.kids[i].rhs;
@@ -263,8 +261,9 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		}
 
 		struct binop bo = binoptbl[ctx.ast.kinds[i]];
-		*outv = bo.fn[ctx.types[i]->isfloat ? 2 : ctx.types[i]->issigned](
-			ctx.bob, vl, vr, bo.name);
+		*outv = LLVMBuildBinOp(
+			ctx.bob, bo.op[ctx.types[i]->isfloat ? 2 : ctx.types[i]->issigned],
+			vl, vr, bo.name);
 		return ni;
 	}
 	case ASTBINEQ:
