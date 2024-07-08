@@ -211,6 +211,8 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "load");
 		return fwdnode(ctx.ast, i);
 	}
+	case ASTUNPLUS:
+		return codegentypedexpr(ctx, ctx.ast.kids[i].rhs, T, outv);
 	case ASTUNCMPL: {
 		LLVMValueRef v, minus_one;
 		minus_one = LLVMConstInt(type2llvm(ctx, ctx.types[i]), -1, false);

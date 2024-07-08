@@ -53,6 +53,10 @@ enum {
 	   ‘lhs = rhs’ */
 	ASTASIGN,
 
+	/* Unary plus
+	   ‘+rhs’ */
+	ASTUNPLUS,
+
 	/* Unary negation
 	   ‘-rhs’ */
 	ASTUNNEG,

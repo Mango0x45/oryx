@@ -83,6 +83,7 @@ fwdnode(ast_t ast, idx_t i)
 		case ASTFN:
 		case ASTUNCMPL:
 		case ASTUNNEG:
+		case ASTUNPLUS:
 			i = ast.kids[i].rhs;
 			break;
 		case ASTCALLSTMT:
@@ -259,12 +260,6 @@ parseexpratom(ast_t *ast, lexemes_t toks)
 
 	idx_t i = astalloc(ast);
 
-	/* Unary plus is kind of a fake syntactic construct.  We just pretend
-	   like it doesn’t exist, but allow it in the syntax to be consistent
-	   with unary negation. */
-	while (toks.kinds[toksidx] == LEXPLUS)
-		toksidx++;
-
 	ast->lexemes[i] = toksidx;
 
 	switch (toks.kinds[toksidx++]) {
@@ -273,6 +268,15 @@ parseexpratom(ast_t *ast, lexemes_t toks)
 		break;
 	case LEXIDENT:
 		ast->kinds[i] = ASTIDENT;
+		break;
+	case LEXPLUS:
+		/* Unary plus is kind of a fake syntactic construct.  We would
+		   ideally just pretend like it doesn’t exist, but allow it in
+		   the syntax to be consistent with unary negation.  We can’t
+		   just ignoring it in parsing though, because we need to
+		   disallow the statements ‘x := 0; +x = 1;’ */
+		ast->kinds[i] = ASTUNPLUS;
+		ast->kids[i].rhs = parseexpratom(ast, toks);
 		break;
 	case LEXMINUS:
 		ast->kinds[i] = ASTUNNEG;

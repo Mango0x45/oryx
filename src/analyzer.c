@@ -21,15 +21,12 @@
 #include "types.h"
 
 #define LOG2_10       (3.321928)
-#define MP_BITCNT_MAX ((mp_bitcnt_t)-1)
-
-/* In debug builds we want to actually alloc a new mpq_t so that it’s
-   easier to free memory without doing a double free */
-#if DEBUG
-#	define MPQCPY(x, y) do { mpq_init(x); mpq_set(x, y); } while (false)
-#else
-#	define MPQCPY(x, y) (*(x) = *(y))
-#endif
+#define MP_BITCNT_MAX ((mp_bitcnt_t) - 1)
+#define MPQCPY(x, y)                                                           \
+	do {                                                                       \
+		mpq_init(x);                                                           \
+		mpq_set(x, y);                                                         \
+	} while (false)
 
 typedef struct {
 	scope_t *buf;
@@ -409,6 +406,7 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 
 		err("analyzer: Unknown symbol ‘%.*s’", SV_PRI_ARGS(sv));
 	}
+	case ASTUNPLUS:
 	case ASTUNCMPL:
 	case ASTUNNEG: {
 		idx_t ni, rhs;
@@ -708,12 +706,14 @@ out:
 			err("analyzer: Cannot perform bitwise complement of constant");
 		break;
 	}
+	case ASTUNPLUS:
 	case ASTUNNEG: {
 		idx_t rhs = ctx->ast.kids[i].rhs;
 		ni = constfoldexpr(ctx, ctx->types[i], rhs);
 		if (TESTBIT(ctx->cnst, rhs)) {
 			MPQCPY(ctx->folds[i].q, ctx->folds[rhs].q);
-			mpq_neg(ctx->folds[i].q, ctx->folds[i].q);
+			if (ctx->ast.kinds[i] == ASTUNNEG)
+				mpq_neg(ctx->folds[i].q, ctx->folds[i].q);
 		}
 		break;
 	}
