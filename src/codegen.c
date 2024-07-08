@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -107,13 +108,16 @@ codegen(const char *file, bitset_t *cnst, fold_t *folds, scope_t *scps,
 	error = NULL;
 	if (LLVMVerifyModule(ctx.mod, LLVMReturnStatusAction, &error) == 1)
 		err("codegen: %s", error);
+	LLVMDisposeMessage(error);
 
 	if (lflag) {
-		if (LLVMPrintModuleToFile(llmod, oflag == NULL ? "/dev/stdout" : oflag,
-		                          &error)
-		    == 1)
-		{
-			err("codegen: %s", error);
+		if (oflag == NULL)
+			oflag = "/dev/stdout";
+		/* Stupid hack to make this work with Neovim */
+		if (LLVMPrintModuleToFile(llmod, oflag, &error) == 1) {
+			if (errno != ENXIO)
+				err("codegen: %s: %s", oflag, error);
+			LLVMDumpModule(llmod);
 		}
 	} else {
 		LLVMCodeGenFileType ft;
@@ -135,7 +139,6 @@ codegen(const char *file, bitset_t *cnst, fold_t *folds, scope_t *scps,
 	tmpfree(ctx.s);
 	arena_free(ctx.a);
 	LLVMDisposeBuilder(ctx.bob);
-	LLVMDisposeMessage(error);
 	LLVMDisposeModule(ctx.mod);
 	LLVMDisposeTargetData(ctx.td);
 	LLVMDisposeTargetMachine(llmach);
