@@ -16,3 +16,7 @@
     variables.  If this is indeed the cause, then there should most
     probably be separate scope-trees; one which has scopes for constants,
     and one which has scopes for variables.
+
+2.  Recursive functions crash the compiler.
+
+        foo :: () { return foo(); } /* breaks */
