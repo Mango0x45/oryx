@@ -355,6 +355,8 @@ analyzestmt(struct azctx *ctx, idx_t i)
 		ctx->types[i] = ctx->fnret;
 		return ni;
 	}
+	case ASTCALLSTMT:
+		return analyzeexpr(ctx, i + 1);
 	default:
 		__builtin_unreachable();
 	}
@@ -499,6 +501,14 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 	}
 	case ASTFN:
 		return analyzefn(ctx, i);
+	case ASTFUNCALL: {
+		/* TODO: Support function arguments */
+		assert(ctx->ast.kids[i].rhs == AST_EMPTY);
+		idx_t ni, lhs = ctx->ast.kids[i].lhs;
+		ni = analyzeexpr(ctx, lhs);
+		ctx->types[i] = ctx->types[lhs]->ret;
+		return ni;
+	}
 	default:
 		__builtin_unreachable();
 	}
@@ -595,6 +605,9 @@ constfoldexpr(struct azctx *ctx, type_t *T, idx_t i)
 	struct azctx nctx;
 
 	switch (ctx->ast.kinds[i]) {
+	case ASTFUNCALL:
+		/* TODO: Constfold funcall params */
+		break;
 	case ASTFN:
 		return constfoldblk(ctx, ctx->ast.kids[i].rhs);
 	case ASTNUMLIT: {
@@ -910,16 +923,18 @@ typecompat(type_t *lhs, type_t *rhs)
 	if (lhs == rhs)
 		return true;
 
-	/* Boolean types are only compatible with boolean types */
-	if (lhs->kind == TYPE_BOOL || rhs->kind == TYPE_BOOL)
-		return lhs->kind == TYPE_BOOL && rhs->kind == TYPE_BOOL;
+	if (lhs->kind != rhs->kind)
+		return false;
 
 	/* Function types are compatible if they have the same parameter- and
 	   return types */
-	if (lhs->kind == TYPE_FN && rhs->kind == TYPE_FN)
+	/* TODO: Compare the actual parameter types */
+	if (lhs->kind == TYPE_FN)
 		return lhs->paramcnt == rhs->paramcnt && lhs->ret == rhs->ret;
-	if (lhs->kind == TYPE_FN || rhs->kind == TYPE_FN)
-		return false;
+
+	/* Boolean types are only compatible with boolean types */
+	if (lhs->kind == TYPE_BOOL)
+		return true;
 
 	/* At this point we only have numeric types left */
 

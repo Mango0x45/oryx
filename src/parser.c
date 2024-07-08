@@ -85,6 +85,12 @@ fwdnode(ast_t ast, idx_t i)
 		case ASTUNNEG:
 			i = ast.kids[i].rhs;
 			break;
+		case ASTCALLSTMT:
+			i = ast.kids[i + 1].lhs;
+			break;
+		case ASTFUNCALL:
+			i = ast.kids[i].lhs;
+			break;
 		case ASTIDENT:
 		case ASTNUMLIT:
 		case ASTTYPE:
@@ -279,6 +285,20 @@ parseexpratom(ast_t *ast, lexemes_t toks)
 	default:
 		err("parser: Invalid expression leaf");
 	}
+
+	if (toks.kinds[toksidx] == '(') {
+		toksidx++;
+		if (toks.kinds[toksidx++] != ')')
+			err("parser: Expected closing parenthesis");
+
+		idx_t j = astalloc(ast);
+		ast->kinds[j]   = ast->kinds[i];
+		ast->kids[j]    = ast->kids[i];
+		ast->lexemes[j] = ast->lexemes[i];
+		ast->kinds[i]   = ASTFUNCALL;
+		ast->kids[i]    = (pair_t){j, AST_EMPTY};
+	}
+
 	return i;
 }
 
@@ -369,15 +389,22 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 	} else /* assignment */ {
 		idx_t lhs, rhs;
 		i = astalloc(ast);
-		lhs = parseexpratom(ast, toks);
-		if (toks.kinds[toksidx++] != LEXEQ)
-			err("parser: Expected equals");
-		rhs = parseexpr(ast, toks, 0);
-		if (toks.kinds[toksidx++] != LEXSEMI)
-			err("parser: Expected semicolon");
-		ast->kinds[i] = ASTASIGN;
-		ast->kids[i].lhs = lhs;
-		ast->kids[i].rhs = rhs;
+		lhs = parseexpr(ast, toks, 0);
+
+		if (ast->kinds[lhs] != ASTFUNCALL || toks.kinds[toksidx + 1] == LEXEQ) {
+			if (toks.kinds[toksidx++] != LEXEQ)
+				err("parser: Expected equals");
+			rhs = parseexpr(ast, toks, 0);
+			if (toks.kinds[toksidx++] != LEXSEMI)
+				err("parser: Expected semicolon");
+			ast->kinds[i] = ASTASIGN;
+			ast->kids[i].lhs = lhs;
+			ast->kids[i].rhs = rhs;
+		} else {
+			if (toks.kinds[toksidx++] != LEXSEMI)
+				err("parser: Expected semicolon");
+			ast->kinds[i] = ASTCALLSTMT;
+		}
 	}
 
 	return i;

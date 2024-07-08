@@ -146,6 +146,10 @@ static idx_t codegendecl(struct cgctx ctx, idx_t);
 idx_t
 codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 {
+	/* To avoid spamming NULL checks everywhere */
+	if (T == NULL || outv == NULL)
+		goto callstmt;
+
 	if (T->kind == TYPE_NUM && TESTBIT(ctx.cnst, i) && !T->isfloat) {
 		char buf[40 /* The max value of a u128 is length 39 */];
 		mpz_get_str(buf, 10, mpq_numref(ctx.folds[i].q));
@@ -194,7 +198,8 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		mpf_clear(x);
 		return fwdnode(ctx.ast, i);
 	} else if (T->kind == TYPE_BOOL && TESTBIT(ctx.cnst, i)) {
-		*outv = LLVMConstInt(type2llvm(ctx, ctx.types[i]), ctx.folds[i].b, false);
+		*outv = LLVMConstInt(type2llvm(ctx, ctx.types[i]), ctx.folds[i].b,
+		                     false);
 		return fwdnode(ctx.ast, i);
 	}
 
@@ -280,6 +285,19 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 		*outv = LLVMBuildICmp(ctx.bob, bo.pred, vl, vr, bo.name);
 		return ni;
 	}
+callstmt:
+	case ASTFUNCALL: {
+		idx_t lhs = ctx.ast.kids[i].lhs;
+		assert(ctx.ast.kinds[lhs] == ASTIDENT);
+		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[lhs]];
+		symval_t *sym = symtab_get_from_scopes(ctx, sv);
+		LLVMTypeRef ft = LLVMGlobalGetValueType(sym->v);
+		LLVMValueRef call = LLVMBuildCall2(ctx.bob, ft, sym->v, NULL, 0,
+		                                   outv == NULL ? "" : "call");
+		if (outv != NULL)
+			*outv = call;
+		return fwdnode(ctx.ast, i);
+	}
 	default:
 		__builtin_unreachable();
 	}
@@ -314,6 +332,8 @@ codegenstmt(struct cgctx ctx, idx_t i)
 		(void)LLVMBuildRet(ctx.bob, v);
 		return i;
 	}
+	case ASTCALLSTMT:
+		return codegentypedexpr(ctx, i + 1, NULL, NULL);
 	default:
 		__builtin_unreachable();
 	}
@@ -356,7 +376,7 @@ codegenalloca(struct cgctx ctx, idx_t i)
 }
 
 idx_t
-codegenfunc(struct cgctx ctx, idx_t i, strview_t sv)
+codegenfunc(struct cgctx ctx, idx_t i, strview_t sv, LLVMValueRef *outv)
 {
 	size_t namesz = ctx.namespace.len + sv.len + 1;
 	char *name = arena_new(ctx.a, char, namesz + 1);
@@ -374,11 +394,14 @@ codegenfunc(struct cgctx ctx, idx_t i, strview_t sv)
 	idx_t proto = ctx.ast.kids[i].lhs;
 	idx_t blk = ctx.ast.kids[i].rhs;
 
+	while (ctx.scps[ctx.scpi].i != ctx.ast.kids[blk].lhs)
+		ctx.scpi++;
+
 	snapshot_t snap = arena_snapshot_create(*ctx.a);
 	for (idx_t i = ctx.ast.kids[blk].lhs; i <= ctx.ast.kids[blk].rhs;
 	     i = fwdnode(ctx.ast, i))
 	{
-		if (ctx.ast.kinds[i] == ASTCDECL && ctx.ast.kids[i].rhs != AST_EMPTY
+		if (ctx.ast.kinds[i] == ASTCDECL
 		    && ctx.ast.kinds[ctx.ast.kids[i].rhs] == ASTFN)
 		{
 			(void)codegendecl(ctx, i);
@@ -404,6 +427,7 @@ codegenfunc(struct cgctx ctx, idx_t i, strview_t sv)
 	if (ctx.ast.kids[proto].rhs == AST_EMPTY)
 		LLVMBuildRetVoid(ctx.bob);
 
+	*outv = ctx.func;
 	return i;
 }
 
@@ -411,6 +435,7 @@ idx_t
 codegendecl(struct cgctx ctx, idx_t i)
 {
 	pair_t p = ctx.ast.kids[i];
+	strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 
 	if (ctx.ast.kinds[i] == ASTCDECL) {
 		/* Constants are purely a compiler concept; they aren’t generated
@@ -421,7 +446,8 @@ codegendecl(struct cgctx ctx, idx_t i)
 		if (ctx.ast.kinds[p.rhs] != ASTFN || ctx.func != NULL)
 			return fwdnode(ctx.ast, i);
 
-		return codegenfunc(ctx, p.rhs, ctx.toks.strs[ctx.ast.lexemes[i]]);
+		symval_t *sym = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL);
+		return codegenfunc(ctx, p.rhs, ctx.toks.strs[ctx.ast.lexemes[i]], &sym->v);
 	}
 
 	assert(ctx.ast.kinds[i] == ASTDECL);
@@ -431,7 +457,6 @@ codegendecl(struct cgctx ctx, idx_t i)
 		return fwdnode(ctx.ast, i);
 
 	if (ctx.aux.buf[p.lhs].decl.isstatic) {
-		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 		/* TODO: Namespace the name */
 		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
 		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
@@ -452,7 +477,6 @@ codegendecl(struct cgctx ctx, idx_t i)
 	/* Non-static, non-undef, mutable */
 
 	LLVMValueRef var, val;
-	strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
 	var = symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v;
 	if (p.rhs == AST_EMPTY) {
 		val = LLVMConstNull(type2llvm(ctx, ctx.types[i]));

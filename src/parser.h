@@ -61,6 +61,14 @@ enum {
 	   ‘~rhs’ */
 	ASTUNCMPL,
 
+	/* Function call
+	   ‘lhs(a, …)’; aux[rhs].funcall */
+	ASTFUNCALL,
+
+	/* A dummy node to deal with quirks of how the parser is setup.  The
+	   node directly after this is an ASTFUNCALL. */
+	ASTCALLSTMT,
+
 	/* NOTE: Ensure that the enumerations defined above this comment do
 	   not exceed 37 — the value of ‘%’ — or they will conflict with the
 	   definitions below. */
