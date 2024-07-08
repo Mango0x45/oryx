@@ -51,7 +51,7 @@ struct cgctx {
 	LLVMValueRef      func;
 
 	idx_t scpi;
-	strview_t namespace;
+	strview_t decl, namespace;
 };
 
 static void codegenast(struct cgctx);
@@ -207,6 +207,11 @@ codegentypedexpr(struct cgctx ctx, idx_t i, type_t *T, LLVMValueRef *outv)
 	switch (ctx.ast.kinds[i]) {
 	case ASTIDENT: {
 		strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+
+		/* Allow shadowing in decls like ‘x := x + 1’ */
+		if (strview_eq(sv, ctx.decl))
+			ctx.scpi--;
+
 		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
 		LLVMValueRef ptrval = symtab_get_from_scopes(ctx, sv)->v;
 		*outv = LLVMBuildLoad2(ctx.bob, t, ptrval, "load");
@@ -437,7 +442,7 @@ idx_t
 codegendecl(struct cgctx ctx, idx_t i)
 {
 	pair_t p = ctx.ast.kids[i];
-	strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+	strview_t sv = ctx.decl = ctx.toks.strs[ctx.ast.lexemes[i]];
 
 	if (ctx.ast.kinds[i] == ASTCDECL) {
 		/* Constants are purely a compiler concept; they aren’t generated
