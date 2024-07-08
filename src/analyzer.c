@@ -90,7 +90,7 @@ static analyzer analyzeblk, analyzedecl, analyzeexpr, analyzefn, analyzestmt,
 /* Perform constant-folding on the expression at index I in the AST, and
    assert that the resulting constant can be represented by type T. */
 static idx_t constfoldexpr(struct azctx *, type_t *T, idx_t i)
-	__attribute__((nonnull));
+	__attribute__((nonnull(1)));
 
 /* Assert if the types T1 and T2 are compatible with each other */
 static bool typecompat(type_t *t1, type_t *t2)
