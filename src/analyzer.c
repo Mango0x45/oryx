@@ -296,6 +296,8 @@ analyzedecl(struct azctx *ctx, idx_t i)
 		nctx.decl = sv;
 		ni = analyzeexpr(&nctx, p.rhs);
 		rtype = ctx->types[p.rhs];
+		if (isstatic && !TESTBIT(ctx->cnst, p.rhs))
+			err("analyzer: Assigning non-constant expression to static");
 	} else
 		ni = fwdnode(ctx->ast, i);
 

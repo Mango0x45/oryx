@@ -168,3 +168,19 @@ The build script also accepts some subcommands.  They are as follows:
 
         ((x))          = x*10 + y;  /* legal */
         (true ? x : y) = x*10 + y;  /* illegal */
+
+10. Static local variables allow for block-scoped global variables.  This
+    is useful for having function state persist across multiple calls.
+
+        iota :: () int {
+            static x := -1;
+            x = x + 1;
+            return x;
+        }
+
+        pub main :: () {
+            zero  := iota();
+            one   := iota();
+            two   := iota();
+            three := iota();
+        }

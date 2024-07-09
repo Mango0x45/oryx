@@ -369,11 +369,13 @@ codegenalloca(struct cgctx ctx, idx_t i)
 			i = codegenalloca(ctx, i);
 			break;
 		case ASTDECL: {
-			strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
-			uchar *name = tmpalloc(ctx.s, sv.len + 1, 1);
-			LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
-			symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v =
-				LLVMBuildAlloca(ctx.bob, t, svtocstr(name, sv));
+			if (!ctx.aux.buf[ctx.ast.kids[i].lhs].decl.isstatic) {
+				strview_t sv = ctx.toks.strs[ctx.ast.lexemes[i]];
+				uchar *name = tmpalloc(ctx.s, sv.len + 1, 1);
+				LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
+				symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v =
+					LLVMBuildAlloca(ctx.bob, t, svtocstr(name, sv));
+			}
 		} /* fallthrough */
 		default:
 			i = fwdnode(ctx.ast, i);
@@ -465,9 +467,19 @@ codegendecl(struct cgctx ctx, idx_t i)
 
 	if (ctx.aux.buf[p.lhs].decl.isstatic) {
 		/* TODO: Namespace the name */
-		char *name = tmpalloc(ctx.s, sv.len + 1, 1);
+		char *name;
+		if (ctx.namespace.len != 0) {
+			size_t bufsz = ctx.namespace.len + sv.len + 2;
+			name = tmpalloc(ctx.s, bufsz, 1);
+			snprintf(name, bufsz, "%.*s.%.*s", SV_PRI_ARGS(ctx.namespace),
+					 SV_PRI_ARGS(sv));
+		} else {
+			name = tmpalloc(ctx.s, sv.len + 1, 1);
+			svtocstr(name, sv);
+		}
+
 		LLVMTypeRef t = type2llvm(ctx, ctx.types[i]);
-		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, svtocstr(name, sv));
+		LLVMValueRef globl = LLVMAddGlobal(ctx.mod, t, name);
 		symtab_insert(&ctx.scps[ctx.scpi].map, sv, NULL)->v = globl;
 
 		LLVMValueRef v;

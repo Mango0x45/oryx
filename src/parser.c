@@ -158,9 +158,15 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 		aux->buf = bufalloc(aux->buf, aux->cap, sizeof(*aux->buf));
 	}
 
-	/* TODO: Support ‘static’ as a keyword */
-	aux->buf[j].decl.isstatic = toplvl;
-	aux->buf[j].decl.isundef  = false;
+	bool static_kw = toks.kinds[toksidx] == LEXIDENT
+	              && strview_eq(SV("static"), toks.strs[toksidx]);
+	if (static_kw) {
+		toksidx++;
+		if (toplvl)
+			err("parser: The ‘static’ doesn’t apply to global variables");
+	}
+
+	aux->buf[j].decl.isundef = false;
 	if (toplvl && toks.kinds[toksidx] == LEXIDENT
 	    && strview_eq(SV("pub"), toks.strs[toksidx]))
 	{
@@ -187,12 +193,17 @@ parsedecl(ast_t *ast, aux_t *aux, lexemes_t toks, bool toplvl)
 			err("parser: No type provided in non-assigning declaration");
 		ast->kinds[i] = ASTDECL;
 		ast->kids[i].rhs = AST_EMPTY;
+		aux->buf[j].decl.isstatic = toplvl || static_kw;
 		return i;
 	case LEXCOLON:
 		ast->kinds[i] = ASTCDECL;
+		aux->buf[j].decl.isstatic = false;
+		if (static_kw)
+			err("parser: Cannot declare a constant symbol ‘static’");
 		break;
 	case LEXEQ:
 		ast->kinds[i] = ASTDECL;
+		aux->buf[j].decl.isstatic = toplvl || static_kw;
 		break;
 	default:
 		err("parser: Expected colon, equals, or semicolon");
@@ -388,7 +399,9 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 		ast->kids[i].rhs = rhs;
 		if (toks.kinds[toksidx++] != LEXSEMI)
 			err("parser: Expected semicolon");
-	} else if (toks.kinds[toksidx + 1] == LEXCOLON) {
+	} else if (strview_eq(SV("static"), sv)
+	           || toks.kinds[toksidx + 1] == LEXCOLON)
+	{
 		i = parsedecl(ast, aux, toks, false);
 	} else /* assignment or funcall */ {
 		idx_t lhs, rhs;
