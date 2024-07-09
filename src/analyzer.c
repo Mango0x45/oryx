@@ -417,7 +417,7 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 		SET_DST_IF_SRC(ctx->cnst, i, rhs);
 		type_t *t = ctx->types[rhs];
 		if (ctx->ast.kinds[i] == ASTUNNEG
-		    && (t->kind != TYPE_NUM || !t->issigned))
+		    && (t->kind != TYPE_NUM || (!t->issigned && t->size != 0)))
 		{
 			err("analyzer: Unary negation is reserved for signed numeric "
 			    "types");
