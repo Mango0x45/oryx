@@ -298,6 +298,8 @@ analyzedecl(struct azctx *ctx, idx_t i)
 		rtype = ctx->types[p.rhs];
 		if (isstatic && !TESTBIT(ctx->cnst, p.rhs))
 			err("analyzer: Assigning non-constant expression to static");
+		if (isconst && !TESTBIT(ctx->cnst, p.rhs))
+			err("analyzer: Assigning non-constant expression to constant");
 	} else
 		ni = fwdnode(ctx->ast, i);
 
@@ -500,6 +502,7 @@ analyzeexpr(struct azctx *ctx, idx_t i)
 		return ni;
 	}
 	case ASTFN:
+		SETBIT(ctx->cnst, i);
 		return analyzefn(ctx, i);
 	case ASTFUNCALL: {
 		/* TODO: Support function arguments */
