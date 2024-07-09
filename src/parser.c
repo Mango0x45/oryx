@@ -403,6 +403,8 @@ parsestmt(ast_t *ast, aux_t *aux, lexemes_t toks)
 	           || toks.kinds[toksidx + 1] == LEXCOLON)
 	{
 		i = parsedecl(ast, aux, toks, false);
+	} else if (strview_eq(SV("pub"), sv)) {
+		err("parser: Attempted to use ‘pub’ outside of a global scope");
 	} else /* assignment or funcall */ {
 		idx_t lhs, rhs;
 		i = astalloc(ast);
