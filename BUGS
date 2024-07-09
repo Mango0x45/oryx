@@ -20,3 +20,11 @@
 2.  Recursive functions crash the compiler.
 
         foo :: () { return foo(); } /* breaks */
+
+3.  The following example function has a use-after-free for a yet
+    undiagnosed reason:
+
+        iota :: () int {
+            x: int = -1;
+            return x;
+        }
