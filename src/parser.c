@@ -269,7 +269,7 @@ parseexpratom(ast_t *ast, lexemes_t toks)
 		return i;
 	}
 
-	idx_t i = astalloc(ast);
+	idx_t i = astalloc(ast), rhs;
 
 	ast->lexemes[i] = toksidx;
 
@@ -287,15 +287,18 @@ parseexpratom(ast_t *ast, lexemes_t toks)
 		   just ignoring it in parsing though, because we need to
 		   disallow the statements ‘x := 0; +x = 1;’ */
 		ast->kinds[i] = ASTUNPLUS;
-		ast->kids[i].rhs = parseexpratom(ast, toks);
+		rhs = parseexpratom(ast, toks);
+		ast->kids[i].rhs = rhs;
 		break;
 	case LEXMINUS:
 		ast->kinds[i] = ASTUNNEG;
-		ast->kids[i].rhs = parseexpratom(ast, toks);
+		rhs = parseexpratom(ast, toks);
+		ast->kids[i].rhs = rhs;
 		break;
 	case LEXTILDE:
 		ast->kinds[i] = ASTUNCMPL;
-		ast->kids[i].rhs = parseexpratom(ast, toks);
+		rhs = parseexpratom(ast, toks);
+		ast->kids[i].rhs = rhs;
 		break;
 	default:
 		err("parser: Invalid expression leaf");

@@ -23,15 +23,7 @@
 
         foo :: () { return foo(); } /* breaks */
 
-3.  The following example function has a use-after-free for a yet
-    undiagnosed reason:
-
-        iota :: () int {
-            x: int = -1;
-            return x;
-        }
-
-4.  Variable shadowing breaks when you create a local variable with the
+3.  Variable shadowing breaks when you create a local variable with the
     same name as the parent function, failing with a circular-dependency:
 
         foo :: () { foo := 5; }
