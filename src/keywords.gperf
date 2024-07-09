@@ -1,0 +1,40 @@
+%compare-lengths
+%compare-strncmp
+%includes
+%readonly-tables
+
+%{
+#include <stdbool.h>
+
+#include "strview.h"
+
+static const char *in_word_set(const char *, size_t);
+%}
+
+%%
+pub
+static
+bool
+i8
+i16
+i32
+i64
+i128
+int
+u8
+u16
+u32
+u64
+u128
+uint
+f16
+f32
+f64
+f128
+rune
+%%
+bool
+iskeyword(strview_t sv)
+{
+	return in_word_set(sv.p, sv.len) != NULL;
+}

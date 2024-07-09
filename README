@@ -19,11 +19,15 @@ Building the Oryx compiler is rather trivial.  The steps are as follows:
     the version of LLVM being utilized is 17.0.6.  The compiler may work
     with other versions, but it isn’t guaranteed.
 
-2.  Clone the compiler repository.
+2.  Install Gperf.  It should be available in your systems package
+    manager, and if not then you can easily find instructions online to
+    build from source.
+
+3.  Clone the compiler repository.
 
     $ git clone https://github.com/Mango0x45/oryx.git
 
-3.  Bootstrap and run the build script.
+4.  Bootstrap and run the build script.
 
     $ cc -o make make.c
     $ ./make  # See below for more details
