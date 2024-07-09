@@ -1,14 +1,16 @@
-1.  Nested functions should inherit constants from parent scopes, but not
-    local variables.  At the moment the former works, but when trying to
-    (incorrectly) use a local variable from an outer scope in an inner
-    function, the compiler crashes:
+1.  Nested functions should inherit constants and static locals from
+    parent scopes, but not automatic local variables.  At the moment the
+    former works, but when trying to (incorrectly) use a local variable
+    from an outer scope in an inner function, the compiler crashes:
 
-        foo :: () {
-            x := 42;
-            X :: 69;
+        example :: () {
+            x         :=  42;
+            x′        ::  69;
+            static x″ := 420;
 
-            bar :: () int { return x; } /* not fine; breaks */
-            baz :: () int { return X; } /* totally fine */
+            foo :: () int { return x;  } /* not fine; breaks */
+            bar :: () int { return x′; } /* totally fine */
+            baz :: () int { return x″; } /* totally fine */
         }
 
     This is presumably due to the compiler maintaining a single tree of
@@ -27,4 +29,15 @@
         iota :: () int {
             x: int = -1;
             return x;
+        }
+
+4.  Variable shadowing breaks when you create a local variable with the
+    same name as the parent function, failing with a circular-dependency:
+
+        foo :: () { foo := 5; }
+
+    This is not an issue with nested functions:
+
+        foo :: () {
+            bar :: () { foo := 5; }
         }
