@@ -1,0 +1,26 @@
+x: int;
+
+/* You can define static local variables and use them */
+foo :: () {
+	static bar := 42;
+	static baz: f32;
+
+	bar = bar * 2;
+}
+
+/* Static locals can shadow other globals */
+bar :: () u128 {
+	static x: u128 = 1'000;
+	return x;
+}
+
+/* Shadowing works in nested functions */
+baz :: () u128 {
+	static x: u128 = 1'000;
+	static y := 42;
+	nested :: () {
+		static x: i16;
+		x = 16;
+	}
+	return x;
+}
