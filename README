@@ -15,13 +15,14 @@ Portuguese or ‘Όρυξ’ in Greek) as opposed to using the English name.
 Building the Oryx compiler is rather trivial.  The steps are as follows:
 
 1.  Install the LLVM libraries and -headers.  They should be available
-    through your systems package manager.  Do note that as of 24/06/2024
-    the version of LLVM being utilized is 17.0.6.  The compiler may work
+    through your systems package manager.  Do note that as of 17/07/2024
+    the version of LLVM being utilized is 18.1.x.  The compiler may work
     with other versions, but it isn’t guaranteed.
 
 2.  Install Gperf.  It should be available in your systems package
     manager, and if not then you can easily find instructions online to
-    build from source.
+    build from source.  Gperf 3.1 is the oldest version that is actively
+    tested on.
 
 3.  Clone the compiler repository.
 
