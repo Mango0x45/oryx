@@ -14,6 +14,12 @@
 #define GMPDIR "vendor/gmp-6.3.0"
 #define OPDIR  "vendor/optparse-master"
 
+#if __APPLE__
+#	define FIND_EXEC "-perm", "+0111"
+#else
+#	define FIND_EXEC "-executable"
+#endif
+
 enum {
 	SIMD_AVX2 = 1 << 0,
 	SIMD_NEON = 1 << 1,
@@ -113,7 +119,7 @@ main(int argc, char **argv)
 					"-name", TARGET,
 					"-or", "-name", "*.o",
 					"-or", "-name", "*.gen.c",
-					"-or", "-path", "./test/*", "-and", "-executable",
+					"-or", "-path", "./test/*", "-and", FIND_EXEC,
 				")", "-delete"
 			);
 			cmdput(cmd);
@@ -124,7 +130,7 @@ main(int argc, char **argv)
 					"-name", TARGET,
 					"-or", "-name", "*.o",
 					"-or", "-name", "*.gen.c",
-					"-or", "-path", "./test/*", "-and", "-executable",
+					"-or", "-path", "./test/*", "-and", FIND_EXEC,
 				")",  "-delete"
 			);
 			cmdput(cmd);
@@ -135,7 +141,7 @@ main(int argc, char **argv)
 			cmdput(cmd);
 			return cmdexec(cmd);
 		} else if (strcmp("test", *argv) == 0) {
-			strspushl(&cmd, "find", "test", "-type", "f", "-executable",
+			strspushl(&cmd, "find", "test", "-type", "f", FIND_EXEC,
 			          "-exec", "{}", ";");
 			cmdput(cmd);
 			return cmdexec(cmd);
