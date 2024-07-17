@@ -1,0 +1,142 @@
+1.	Function parameters:
+
+	sum :: (a: int, b: int) int { return a + b; }
+	foo :: () { x := sum(1, 2); }
+
+2.	Multideclarations:
+
+	a, b := 1, 2;     /* Multiple assignment */
+	r, g, b, a: u8;   /* Type cascading */
+	x, y, z: i8 = …;  /* Multiple undefined assignment */
+
+3.	Strings and arrays:
+
+	hello_utf8      := "Hello World";
+	hello_utf16: u16 = "Hello, World";
+	hello_utf32: u32 = "Hello, World";
+
+	X :: 3;
+
+	xs := […]int{1, 2, 3};  /* Implicit length */
+	ys := [X]int{1, 2, 3};  /* Explicit length */
+
+	/* Assign specific indicies */
+	zs := […]int{
+		[2] = 123,
+		[4] = 321,
+	};
+
+4.	Conditionals:
+
+	if x > y {
+		…
+	} else if y < x {
+		…
+	} else {
+		…
+	}
+
+	/* Shortform */
+	if x > y
+		foo();
+
+	/* Bad style! */
+	if x > y  foo();
+
+5.	Switch statements
+
+	if x == {
+	case 0;
+		…
+	case 1;
+		…
+		fallthrough;  /* Explicit fallthrough; implicit break */
+	case 2;
+		…
+	default;
+		…
+	}
+
+6.	Loops
+
+	loop { … }  /* Infinite loop */
+
+	/* Shorthand syntax */
+	loop
+		foo();
+
+	loop x > y   …  /* While loop */
+	loop x: xs   …  /* Range/for loop */
+	loop i: N…M  …  /* Loop i from N to M (integers) */
+
+	/* Break- and continue a loop iteration */
+	loop x > y {
+		if x == 42
+			break;
+		if x & 1 == 1
+			continue;
+		…
+	}
+
+	/* Labeled break/continue */
+	outer :: loop {
+		loop x > y {
+			if x == 42
+				break outer;
+		}
+	}
+
+7.	Multiple return values from functions
+
+	swap :: (x, y: int) int, int { return y, x; }
+	x, y := 1, 2;
+	x, y  = swap(x, y);
+
+	/* Note that this is a function that returns a function!  The
+	   returned function is one that takes an int and returns nothing */
+	foo :: () (int) { … }
+
+8.	Default parameters
+
+	foo :: (x, y: int, flags: Flags = 0) { … }
+
+9.	Variadic parameters
+
+	foo :: (xs: …int) {
+		for x: xs { … }
+		foo(xs…);
+	}
+
+10.	Structure types
+
+	City :: struct {
+		name, country: []u8;
+		population: int;
+		european := false;
+	}
+
+	växjö := City{"Växjö", "Sweden", 40'000, true};
+	são_paulo := City{
+		name       = "São Paulo",
+		country    = "Brazil",
+		population = 12.33e6,
+	};
+
+11.	Enumerations
+
+	Animal :: enum u8 {
+		BEAR;  /* 0 */
+		CAT;   /* 1 */
+		DOG = 42;
+		SNAKE; /* 43 */
+	}
+
+	FileFlag :: flag_enum u8 {
+		READ;               /* 0x01 */
+		WRITE;              /* 0x02 */
+		TRUNC;              /* 0x04 */
+		EXEC = 0b0100'0000; /* 0x40 */
+		CLOEXEC;            /* 0x80 */
+
+		RDWR = .READ | .WRITE; /* 0x3 */
+	}
