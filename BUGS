@@ -33,3 +33,13 @@
         foo :: () {
             bar :: () { foo := 5; }
         }
+
+4.  The following code breaks for a yet unknown reason.  This will
+    perhaps be automatically resolved when the scoping issues are ironed
+    out when bug #1 is fixed.
+
+        X :: 42;
+        foo :: () {
+            bar :: () int { return X; }
+            x := bar();
+        }
