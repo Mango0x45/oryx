@@ -7,6 +7,23 @@ Oryx the programming language in languages other than English you should
 use the given language’s translation of the animal’s name (e.g. ‘Órix’ in
 Portuguese or ‘Όρυξ’ in Greek) as opposed to using the English name.
 
+Oryx is intended to be a sane programming language for serious software
+development.  To be more specific Oryx aims to be the ideal language for
+general-purpose application development for modern systems.  We do not
+waste our time attempting to support or perform well on legacy systems or
+on your dishwasher.
+
+Oryx assumes that the programmer is competent, and allows the programmer
+to do what the programmer wishes to do without getting in their way.
+Oryx rejects the notion that your tools need to be actively defensive,
+and assume that you are a web developer that lacks real programming
+skills.
+
+Oryx also aims to be a very simple language.  Learning most of the
+languages useful features should be possible within a day of
+experimentation, and language features and syntax should be as consistent
+and common-sense as possible.
+
 
                              ──────────────────────
                                Build Instructions
