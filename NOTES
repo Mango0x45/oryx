@@ -1,0 +1,46 @@
+This file contains various notes about the Oryx language and language
+design more generally that I have compiled over my time developing the
+Oryx ecosystem.  These are mostly just for myself to remember in the
+future, as well as the potential interest of others.
+
+1.  Unified logical- and bitwise operators is a potentially bad idea.
+    After a few attempts at unifying these seemingly similar operators
+    (‘|’ and ‘||’, ‘&’ and ‘&&’, etc.) I have concluded that it makes
+    little sense.
+
+    The first argument is that when you see ‘a & b’ you assume that both
+    sides of the argument are being evaluated while you assume
+    short-circuiting in ‘a && b’.
+
+    Another issue I came to realize is one that occurs when you consider
+    the fact that bitwise-NOT is merely the unary version of bitwise-XOR¹
+    (similar to how you have both a unary- and binary-minus).  This means
+    that a NOT and an XOR would look like ‘~a’ and ‘a ~ b’ respectively.
+    This is fine until you merge bitwise- and logical-NOT.  All of a
+    sudden you get ambiguity when you see ‘a ~= b’.  Is this a compound
+    assignment that expands to ‘a = a ~ b’, or is it a logical not-equals
+    operation between ‘a’ and ‘b’?
+
+    ¹ This is an observation made by both Go and Odin.  Odin does use ‘~’
+    for both operations.  Go on the otherhand retains ‘^’ for XOR and ‘~’
+    for bitwise-negation, but it does have an AND-NOT operator
+    represented by ‘&^’, the operators for AND and… XOR.  Likewise
+    LLVM IR does not even include an operator to perform a bitwise
+    negation, instead requiring the user to express it as the XOR of your
+    to-be-negated oprand and 1.
+
+2.  Prefixless functions à la Jai are not a good idea.  Take the simple
+    example of ‘f :: (a: int) (int, int)’.  What is ‘f’?  It seem to be a
+    function that takes an integer and returns two integers, but this
+    could actually also be a function that takes an integer and returns a
+    new function that accepts 2 integers and returns nothing.  With a
+    function prefix this ambiguity is solved:
+
+        f :: func (a: int) (int, int);
+        f :: func (a: int) func (int, int);
+
+    Additionally this allows for consistent syntax between functions and
+    macros:
+
+        addf :: func  (a, b: int) int { return a + b; }
+        addm :: macro (a, b: int) int { return a + b; }
