@@ -21,9 +21,10 @@
 #endif
 
 enum {
-	SIMD_AVX2 = 1 << 0,
-	SIMD_NEON = 1 << 1,
-	SIMD_SSE4_1 = 1 << 2,
+	CPU_AVX2   = 1 << 0,
+	CPU_NEON   = 1 << 1,
+	CPU_SSE4_1 = 1 << 2,
+	CPU_BMI2   = 1 << 3,
 };
 
 static char *cflags_all[] = {
@@ -60,7 +61,7 @@ static char *cflags_rls[] = {
 
 static char *argv0;
 static bool fflag, Fflag, rflag, Sflag;
-static int simd_flags;
+static int cpu_flags;
 
 static void ld(void);
 static void mkgmp(int);
@@ -213,8 +214,10 @@ cc(void *arg)
 		strspushenv(&cmd, "CFLAGS", cflags_dbg, lengthof(cflags_dbg));
 	if (!rflag && !Sflag)
 		strspushl(&cmd, "-fsanitize=address,undefined");
-	if (simd_flags != 0)
+	if (cpu_flags != 0)
 		strspushl(&cmd, "-DORYX_SIMD=1");
+	if (cpu_flags & CPU_BMI2)
+		strspushl(&cmd, "-DORYX_BMI2=1");
 	llvmquery(&cmd, LLVM_CFLAGS);
 	strspushl(&cmd, "-o", dst, "-c", src);
 
@@ -261,8 +264,10 @@ cc_test(void *arg)
 		strspushenv(&cmd, "CFLAGS", cflags_dbg, lengthof(cflags_dbg));
 	if (!rflag && !Sflag)
 		strspushl(&cmd, "-fsanitize=address,undefined");
-	if (simd_flags != 0)
+	if (cpu_flags != 0)
 		strspushl(&cmd, "-DORYX_SIMD=1");
+	if (cpu_flags & CPU_BMI2)
+		strspushl(&cmd, "-DORYX_BMI2=1");
 	strspushl(&cmd, "-Isrc", "-o", dst, src);
 	strspush(&cmd, d.objs, d.len);
 
@@ -382,9 +387,9 @@ tagvalid(const char *file)
 		char *tag;
 		int flag;
 	} tags[] = {
-		{"avx2",    SIMD_AVX2  },
-		{"sse4_1",  SIMD_SSE4_1},
-		{"neon",    SIMD_NEON  },
+		{"avx2",    CPU_AVX2  },
+		{"sse4_1",  CPU_SSE4_1},
+		{"neon",    CPU_NEON  },
 		{"generic", 0          },
 	};
 
@@ -399,7 +404,7 @@ tagvalid(const char *file)
 		sprintf(buf, "%.*s-%s%s", (int)(sep - file), file, tags[i].tag, ext);
 
 		if (fexists(buf)
-		    && ((simd_flags & tags[i].flag) != 0 || tags[i].flag == 0))
+		    && ((cpu_flags & tags[i].flag) != 0 || tags[i].flag == 0))
 		{
 			want_and_have = buf;
 			break;
@@ -425,27 +430,36 @@ chk_cpu_flags(void)
 	if (!rflag)
 		return;
 
+	/* Test for BMI2 */
+#if __BMI2__
+	cpu_flags |= CPU_BMI2;
+#elif __GNUC__ && __x86_64__
+	asm volatile("cpuid" : "=b"(exx) : "a"(7), "c"(0));
+	if (exx & (1 << 8))
+		cpu_flags |= CPU_BMI2;
+#endif
+
 	/* Test for AVX512 */
 #if __AVX512F__
-	simd_flags |= SIMD_AVX2;
+	cpu_flags |= CPU_AVX2;
 #elif __GNUC__ && __x86_64__
 	asm volatile("cpuid" : "=b"(exx) : "a"(7), "c"(0));
 	if (exx & (1 << 5))
-		simd_flags |= SIMD_AVX2;
+		cpu_flags |= CPU_AVX2;
 #endif
 
 	/* Test for SSE4.1 */
 #if __SSE4_1__
-	simd_flags |= SIMD_SSE4_1;
+	cpu_flags |= CPU_SSE4_1;
 #elif __GNUC__ && __x86_64__
 	asm volatile("cpuid" : "=c"(exx) : "a"(1), "c"(0));
 	if (exx & (1 << 19))
-		simd_flags |= SIMD_SSE4_1;
+		cpu_flags |= CPU_SSE4_1;
 #endif
 
 	/* Test for NEON */
 #if __ARM_NEON || __ARM_NEON__
-	simd_flags |= SIMD_NEON;
+	cpu_flags |= CPU_NEON;
 #endif
 }
 
