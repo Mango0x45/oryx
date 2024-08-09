@@ -1,7 +1,7 @@
 1.	Function parameters:
 
-	sum :: (a: int, b: int) int { return a + b; }
-	foo :: () { x := sum(1, 2); }
+	sum :: func(a: int, b: int) int { return a + b; }
+	foo :: func() { x := sum(1, 2); }
 
 2.	Multideclarations:
 
@@ -11,14 +11,15 @@
 
 3.	Strings and arrays:
 
-	hello_utf8      := "Hello World";
-	hello_utf16: u16 = "Hello, World";
-	hello_utf32: u32 = "Hello, World";
+	hello_utf8        := "Hello, World";
+	hello_utf8:  []u8  = "Hello, World";
+	hello_utf16: []u16 = "Hello, World";
+	hello_utf32: []u32 = "Hello, World";
 
 	X :: 3;
 
 	xs := […]int{1, 2, 3};  /* Implicit length */
-	ys := [X]int{1, 2, 3};  /* Explicit length */
+    ys := [X]int{1, 2, 3};  /* Explicit length */
 
 	/* Assign specific indicies */
 	zs := […]int{
@@ -35,13 +36,6 @@
 	} else {
 		…
 	}
-
-	/* Shortform */
-	if x > y
-		foo();
-
-	/* Bad style! */
-	if x > y  foo();
 
 5.	Switch statements
 
@@ -61,48 +55,47 @@
 
 	loop { … }  /* Infinite loop */
 
-	/* Shorthand syntax */
-	loop
-		foo();
-
-	loop x > y   …  /* While loop */
-	loop x: xs   …  /* Range/for loop */
-	loop i: N…M  …  /* Loop i from N to M (integers) */
+    loop x > y  { … }  /* While loop */
+    loop x: xs  { … }  /* Range/for loop */
+    loop i: N…M { … }  /* Loop i from N to M (integers) */
 
 	/* Break- and continue a loop iteration */
 	loop x > y {
-		if x == 42
+		if x == 42 {
 			break;
-		if x & 1 == 1
+        }
+		if x & 1 == 1 {
 			continue;
+        }
 		…
 	}
 
 	/* Labeled break/continue */
 	outer :: loop {
 		loop x > y {
-			if x == 42
+			if x == 42 {
 				break outer;
+            }
 		}
 	}
 
 7.	Multiple return values from functions
 
-	swap :: (x, y: int) int, int { return y, x; }
+	swap :: func(x, y: int) int, int { return y, x; }
 	x, y := 1, 2;
 	x, y  = swap(x, y);
 
 	/* Note that this is a function that returns a function!  The
 	   returned function is one that takes an int and returns nothing */
-	foo :: () (int) { … }
+	foo :: func() (int) { … }
 
 8.	Default parameters
 
-	foo :: (x, y: int, flags: Flags = 0) { … }
+	foo :: func(x, y: int, flags: Flags = 0) { … }
 
 9.	Variadic parameters
 
-	foo :: (xs: …int) {
+	foo :: func(xs: …int) {
 		for x: xs { … }
 		foo(xs…);
 	}
@@ -124,6 +117,8 @@
 
 11.	Enumerations
 
+    /* enum T ≣ enum(0, x + 1) T*/
+
 	Animal :: enum u8 {
 		BEAR;  /* 0 */
 		CAT;   /* 1 */
@@ -131,7 +126,7 @@
 		SNAKE; /* 43 */
 	}
 
-	FileFlag :: flag_enum u8 {
+	FileFlag :: enum(0, 1 << x) u8 {
 		READ;               /* 0x01 */
 		WRITE;              /* 0x02 */
 		TRUNC;              /* 0x04 */
@@ -140,3 +135,40 @@
 
 		RDWR = .READ | .WRITE; /* 0x3 */
 	}
+
+    ByteSize :: enum(1, x * 1000) int {
+        B;   /*                 1 */
+        KB;  /*             1'000 */
+        MB;  /*         1'000'000 */
+        GB;  /*     1'000'000'000 */
+        TB;  /* 1'000'000'000'000 */
+    }
+
+12. Enum-indexed arrays
+
+    Direction :: enum int { L; R; U; D; }
+    Vector2 :: struct { x, y: int; }
+
+    OFFSETS :: [Direction]Vector2{
+        .L = {-1, 0},
+        .R = {+1, 0},
+        .U = {0, +1},
+        .D = {0, -1},
+    }
+
+    $add :: func (x, y: Vector2) Vector2 {
+        return {x.x + y.x, x.y + y.y};
+    }
+
+    x := Vector2{2, 4};
+    x += OFFSETS[.U]; /* x == Vector2{2, 5} */
+
+    x += OFFSETS[3];            /* Illegal */
+    x += OFFSETS[Direction{3}]; /* Legal */
+
+13. Operator overloading
+
+    $add :: func(x, y: T1) T2 { … }
+
+    $add, $sub, $mul, $div, etc.
+    $dot, $cross, $star, etc. for Unicode operators (⋅, ×, ⋆, etc.)
