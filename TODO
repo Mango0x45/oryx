@@ -23,8 +23,8 @@
 
 	/* Assign specific indicies */
 	zs := […]int{
-		[2] = 123,
-		[4] = 321,
+		2     = 123,
+		X + 1 = 321,
 	};
 
 4.	Conditionals:
@@ -50,6 +50,14 @@
 	default;
 		…
 	}
+
+    /* Alternative to else-if chain */
+    if true == {
+    case foo() == 5;
+        …
+    case bar() == 69;
+        …
+    }
 
 6.	Loops
 
@@ -117,7 +125,7 @@
 
 11.	Enumerations
 
-    /* enum T ≣ enum(0, x + 1) T*/
+    /* enum T ≣ enum(x + 1) T*/
 
 	Animal :: enum u8 {
 		BEAR;  /* 0 */
@@ -126,7 +134,7 @@
 		SNAKE; /* 43 */
 	}
 
-	FileFlag :: enum(0, 1 << x) u8 {
+	FileFlag :: enum(1 << x) u8 {
 		READ;               /* 0x01 */
 		WRITE;              /* 0x02 */
 		TRUNC;              /* 0x04 */
@@ -136,8 +144,8 @@
 		RDWR = .READ | .WRITE; /* 0x3 */
 	}
 
-    ByteSize :: enum(1, x * 1000) int {
-        B;   /*                 1 */
+    ByteSize :: enum(x * 1000) int {
+        B = 1;
         KB;  /*             1'000 */
         MB;  /*         1'000'000 */
         GB;  /*     1'000'000'000 */
