@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -e
+
+cd "${0%/*}"
+trap 'rm -f UCD.zip' EXIT
+
+set -x
+mkdir -p data
+curl -LO https://www.unicode.org/Public/zipped/latest/UCD.zip
+unzip -od data UCD.zip
+
+# XID_Start and XID_Continue additions
+cat <<-EOF >>data/DerivedCoreProperties.txt
+0024          ; XID_Start # Pc       DOLLAR SIGN
+005F          ; XID_Start # Pc       LOW LINE
+2032..2034    ; XID_Continue # Po   [3] PRIME..TRIPLE PRIME
+2057          ; XID_Continue # Po       QUADRUPLE PRIME
+EOF
