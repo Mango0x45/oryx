@@ -25,7 +25,7 @@ static LINE_TERMINATOR_L1: [u16; 544] = [
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 ];
 static LINE_TERMINATOR_L2: [u64; 96] = [
-	15360,
+	7168,
 	0,
 	32,
 	0,
