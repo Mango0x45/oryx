@@ -1,12 +1,13 @@
 use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fmt::Display;
-use std::vec::Vec;
-use std::{
-	iter,
-	mem,
-	str,
+use std::iter::Peekable;
+use std::mem;
+use std::str::{
+	self,
+	Chars,
 };
+use std::vec::Vec;
 
 use phf;
 use soa_rs::{
@@ -119,7 +120,7 @@ impl Error {
 struct LexerContext<'a> {
 	pos_a:          usize, /* Pos [a]fter char */
 	pos_b:          usize, /* Pos [b]efore char */
-	chars:          iter::Peekable<str::Chars<'a>>,
+	chars:          Peekable<Chars<'a>>,
 	string:         &'a str,
 	filename:       &'a OsStr,
 	expect_punct_p: bool,
