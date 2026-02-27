@@ -44,7 +44,13 @@ pub struct FileData {
 
 impl FileData {
 	fn new(name: OsString) -> Result<Self, io::Error> {
-		let buffer = fs::read_to_string(&name)?;
+		const PAD: [u8; 64] = [0; 64]; /* 512 bits */
+
+		// Append extra data to the end so that we can safely read past
+		// instead of branching on length
+		let mut buffer = fs::read_to_string(&name)?;
+		buffer.push_str(unsafe { str::from_utf8_unchecked(&PAD) });
+
 		return Ok(Self {
 			name:   name.into(),
 			buffer: buffer.into(),

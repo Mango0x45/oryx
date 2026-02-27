@@ -142,7 +142,7 @@ impl<'a> LexerContext<'a> {
 		let c = self.chars.next()?;
 		self.pos_b = self.pos_a;
 		self.pos_a += c.len_utf8();
-		return Some(c);
+		return if c == '\0' { None } else { Some(c) };
 	}
 
 	#[inline(always)]
