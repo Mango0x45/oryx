@@ -35,7 +35,6 @@ pub enum AstType {
 	Pointer,        /* (rhs, _) */
 	Return,         /* (extra-data, _) */
 	String,         /* (token, _) */
-	Type,           /* (type-data, _) */
 	UnaryOperator,  /* (rhs, _) */
 	BinaryOperator, /* (lhs, rhs) */
 }
