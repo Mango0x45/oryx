@@ -9,8 +9,8 @@ use soa_rs::{
 };
 
 use crate::lexer::{
+	Token,
 	TokenType,
-	TokenizedBuffer,
 };
 use crate::{
 	errors,
@@ -87,33 +87,31 @@ pub union ExtraData {
 	r#return: ManuallyDrop<ReturnData>,
 }
 
-struct Parser<'a, 'b> {
+struct Parser<'a> {
 	ast:        Soa<AstNode>,
 	extra_data: Vec<ExtraData>,
-	tokbuf:     &'a TokenizedBuffer<'b>,
 	cursor:     u32,
 	scratch:    Vec<u32>,
+	tokens:     &'a Soa<Token>,
+	filename:   &'a OsStr,
 }
 
-impl<'a, 'b> Parser<'a, 'b> {
-	fn new(tokbuf: &'a TokenizedBuffer<'b>) -> Self {
+impl<'a> Parser<'a> {
+	fn new(filename: &'a OsStr, tokens: &'a Soa<Token>) -> Self {
 		return Self {
 			ast: Soa::with_capacity(size::kibibytes(10)),
 			extra_data: Vec::with_capacity(size::kibibytes(1)),
-			tokbuf,
 			cursor: 0,
 			scratch: Vec::with_capacity(64),
+			tokens,
+			filename,
 		};
 	}
 
 	#[inline(always)]
 	fn get(&self) -> TokenType {
 		return unsafe {
-			*self
-				.tokbuf
-				.tokens
-				.kind()
-				.get_unchecked(self.cursor as usize)
+			*self.tokens.kind().get_unchecked(self.cursor as usize)
 		};
 	}
 
@@ -146,10 +144,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 	where
 		T: Display,
 	{
-		errors::err_at_position(
-			self.tokbuf.filename.unwrap_or(OsStr::new("-")),
-			s,
-		);
+		errors::err_at_position(self.filename, s);
 	}
 
 	fn parse_toplevel(&mut self) {
@@ -535,8 +530,11 @@ impl<'a, 'b> Parser<'a, 'b> {
 	}
 }
 
-pub fn parse(tokbuf: &TokenizedBuffer) -> (Soa<AstNode>, Vec<ExtraData>) {
-	let mut p = Parser::new(tokbuf);
+pub fn parse(
+	filename: &OsStr,
+	tokens: &Soa<Token>,
+) -> (Soa<AstNode>, Vec<ExtraData>) {
+	let mut p = Parser::new(filename, tokens);
 	while p.get() != TokenType::Eof {
 		p.parse_toplevel();
 	}

@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::iter::IntoIterator;
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::{
 	AtomicUsize,
@@ -7,6 +8,8 @@ use std::sync::atomic::{
 };
 use std::vec::Vec;
 use std::{
+	fs,
+	io,
 	panic,
 	thread,
 };
@@ -18,14 +21,37 @@ use crossbeam_deque::{
 	Worker,
 };
 use dashmap::DashMap;
+use soa_rs::Soa;
 
-use crate::Flags;
+use crate::lexer::Token;
+use crate::parser::AstNode;
+use crate::{
+	Flags,
+	err,
+	lexer,
+	parser,
+};
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct FileId(u32);
+pub struct FileId(usize);
 
 pub struct FileData {
-	name: OsString,
+	name:   Arc<OsString>,
+	buffer: Arc<String>,
+	tokens: Arc<MaybeUninit<Soa<Token>>>,
+	ast:    Arc<MaybeUninit<Soa<AstNode>>>,
+}
+
+impl FileData {
+	fn new(name: OsString) -> Result<Self, io::Error> {
+		let buffer = fs::read_to_string(&name)?;
+		return Ok(Self {
+			name:   name.into(),
+			buffer: buffer.into(),
+			tokens: Arc::new_uninit(),
+			ast:    Arc::new_uninit(),
+		});
+	}
 }
 
 pub enum Job {
@@ -51,8 +77,12 @@ where
 		flags,
 	});
 	for (i, path) in paths.into_iter().enumerate() {
-		let id = FileId(i as u32);
-		state.files.insert(id, FileData { name: path.clone() });
+		let id = FileId(i);
+		let data = match FileData::new(path.clone().into()) {
+			Ok(x) => x,
+			Err(e) => err!(e, "{}", path.display()),
+		};
+		state.files.insert(id, data);
 		state.njobs.fetch_add(1, Ordering::SeqCst);
 		state.globalq.push(Job::LexAndParse { file: id });
 	}
@@ -95,7 +125,22 @@ fn worker_loop(
 		let job = find_task(&queue, &state.globalq, &stealers);
 		if let Some(job) = job {
 			match job {
-				LexAndParse { file } => {},
+				Job::LexAndParse { file } => {
+					let (name, buffer) = {
+						let fdata = state.files.get(&file).unwrap();
+						(fdata.name.clone(), fdata.buffer.clone())
+					};
+					let (name, buffer) = (name.as_ref(), buffer.as_ref());
+					let tokens = match lexer::tokenize(name, buffer) {
+						Ok(xs) => xs,
+						Err(errs) => todo!(),
+					};
+					let (ast, _extra_data) = parser::parse(name, &tokens);
+					let mut fdata = state.files.get_mut(&file).unwrap();
+					fdata.tokens = Arc::from(MaybeUninit::new(tokens));
+					fdata.ast = Arc::from(MaybeUninit::new(ast));
+				},
+				_ => todo!(),
 			}
 
 			state.njobs.fetch_sub(1, Ordering::SeqCst);

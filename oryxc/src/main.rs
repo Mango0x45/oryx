@@ -10,7 +10,6 @@ mod unicode;
 use std::ffi::OsString;
 use std::{
 	env,
-	fs,
 	process,
 	thread,
 };

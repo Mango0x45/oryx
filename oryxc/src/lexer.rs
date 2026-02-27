@@ -1,5 +1,7 @@
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fmt::Display;
+use std::vec::Vec;
 use std::{
 	iter,
 	mem,
@@ -8,16 +10,16 @@ use std::{
 
 use phf;
 use soa_rs::{
-	self,
+	Soa,
 	Soars,
 };
 
 use crate::{
 	errors,
-	size,
 	unicode,
 };
 
+#[allow(dead_code)]
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TokenType {
@@ -87,17 +89,31 @@ impl TokenType {
 	}
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Span(usize, usize);
+
 #[derive(Soars)]
 #[soa_derive(Debug)]
-pub struct Token<'a> {
+pub struct Token {
 	pub kind: TokenType,
-	pub view: &'a str,
+	pub view: Span,
 }
 
-pub struct TokenizedBuffer<'a> {
-	pub tokens:   soa_rs::Soa<Token<'a>>,
-	pub buffer:   &'a str,
-	pub filename: Option<&'a OsStr>,
+pub struct Error {
+	pub pos: usize,
+	pub msg: Cow<'static, str>,
+}
+
+impl Error {
+	fn new<T>(pos: usize, msg: T) -> Self
+	where
+		T: Into<Cow<'static, str>>,
+	{
+		return Self {
+			pos,
+			msg: msg.into(),
+		};
+	}
 }
 
 struct LexerContext<'a> {
@@ -105,12 +121,12 @@ struct LexerContext<'a> {
 	pos_b:          usize, /* Pos [b]efore char */
 	chars:          iter::Peekable<str::Chars<'a>>,
 	string:         &'a str,
-	filename:       Option<&'a OsStr>,
+	filename:       &'a OsStr,
 	expect_punct_p: bool,
 }
 
 impl<'a> LexerContext<'a> {
-	fn new(filename: Option<&'a OsStr>, string: &'a str) -> Self {
+	fn new(filename: &'a OsStr, string: &'a str) -> Self {
 		return Self {
 			pos_a: 0,
 			pos_b: 0,
@@ -138,7 +154,7 @@ impl<'a> LexerContext<'a> {
 	where
 		S: Display,
 	{
-		errors::err_at_position(self.filename.unwrap_or(OsStr::new("-")), s);
+		errors::err_at_position(self.filename, s);
 	}
 
 	#[inline(always)]
@@ -157,11 +173,8 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf::phf_map! {
 	"return" => TokenType::KeywordReturn,
 };
 
-pub fn tokenize<'a>(
-	filename: Option<&'a OsStr>,
-	s: &'a str,
-) -> TokenizedBuffer<'a> {
-	let mut toks = soa_rs::Soa::<Token>::with_capacity(size::kibibytes(10));
+pub fn tokenize(filename: &OsStr, s: &str) -> Result<Soa<Token>, Vec<Error>> {
+	let mut toks = Soa::<Token>::with_capacity(s.len() / 2);
 	let mut ctx = LexerContext::new(filename, s);
 
 	while let Some(c) = ctx.next() {
@@ -182,7 +195,7 @@ pub fn tokenize<'a>(
 				};
 				Some(Token {
 					kind,
-					view: &s[i..ctx.pos_a],
+					view: Span(i, ctx.pos_a),
 				})
 			},
 			'>' if ctx.peek().is_some_and(|c| c == '>') => {
@@ -195,21 +208,21 @@ pub fn tokenize<'a>(
 				};
 				Some(Token {
 					kind,
-					view: &s[i..ctx.pos_a],
+					view: Span(i, ctx.pos_a),
 				})
 			},
 			'&' if ctx.peek().is_some_and(|c| c == '~') => {
 				ctx.next(); /* Consume ‘~’ */
 				Some(Token {
 					kind: TokenType::AmpersandTilde,
-					view: &s[i..j + 1],
+					view: Span(i, j + 1),
 				})
 			},
 			'!' | '&' | '(' | ')' | '*' | '+' | ',' | '-' | '/' | ';' | '<'
 			| '=' | '>' | '[' | ']' | '^' | '{' | '|' | '}' | '~' | '…' => {
 				Some(Token {
 					kind: unsafe { mem::transmute(c as u8) },
-					view: &s[i..j],
+					view: Span(i, j),
 				})
 			},
 			'#' => {
@@ -246,13 +259,9 @@ pub fn tokenize<'a>(
 
 	toks.push(Token {
 		kind: TokenType::Eof,
-		view: &s[s.len() - 1..],
+		view: Span(s.len() - 1, s.len()),
 	});
-	return TokenizedBuffer {
-		tokens: toks,
-		buffer: s,
-		filename,
-	};
+	return Ok(toks);
 }
 
 fn skip_comment<'a>(ctx: &mut LexerContext<'a>) {
@@ -277,7 +286,7 @@ fn skip_comment<'a>(ctx: &mut LexerContext<'a>) {
 	ctx.err_at_position("Unterminated comment");
 }
 
-fn tokenize_number_based<'a>(ctx: &mut LexerContext<'a>) -> Token<'a> {
+fn tokenize_number_based<'a>(ctx: &mut LexerContext<'a>) -> Token {
 	let i = ctx.pos_b;
 	let alphabet = match ctx.next() {
 		Some('b') => "01",
@@ -305,14 +314,14 @@ fn tokenize_number_based<'a>(ctx: &mut LexerContext<'a>) -> Token<'a> {
 		},
 		None => ctx.err_at_position("Expected number after base specifier"),
 	};
-	tok.view = &ctx.string[i..ctx.pos_a];
+	tok.view = Span(i, ctx.pos_a);
 	return tok;
 }
 
 fn tokenize_number<'a>(
 	ctx: &mut LexerContext<'a>,
 	alphabet: &'static str,
-) -> Token<'a> {
+) -> Token {
 	let i = ctx.pos_b;
 	span_raw_number(ctx, alphabet, true);
 
@@ -332,7 +341,7 @@ fn tokenize_number<'a>(
 
 	return Token {
 		kind: TokenType::Number,
-		view: &ctx.string[i..ctx.pos_a],
+		view: Span(i, ctx.pos_a),
 	};
 }
 
@@ -396,7 +405,7 @@ fn span_raw_number<'a>(
 	}
 }
 
-fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Token<'a> {
+fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Token {
 	let i = ctx.pos_b;
 	loop {
 		if let Some(c) = ctx.next() {
@@ -409,17 +418,17 @@ fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Token<'a> {
 	}
 	return Token {
 		kind: TokenType::String,
-		view: &ctx.string[i..ctx.pos_a],
+		view: Span(i, ctx.pos_a),
 	};
 }
 
-fn tokenize_identifier<'a>(ctx: &mut LexerContext<'a>) -> Token<'a> {
+fn tokenize_identifier<'a>(ctx: &mut LexerContext<'a>) -> Token {
 	let i = ctx.pos_b;
 	while ctx.peek().is_some_and(unicode::xid_continue_p) {
 		ctx.next();
 	}
-	let view = &ctx.string[i..ctx.pos_a];
-	let kind = match KEYWORDS.get(view) {
+	let view = Span(i, ctx.pos_a);
+	let kind = match KEYWORDS.get(&ctx.string[view.0..view.1]) {
 		Some(kind) => kind.clone(),
 		None => TokenType::Identifier,
 	};
