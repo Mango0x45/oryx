@@ -85,10 +85,4 @@ fn main() {
 	}
 
 	compiler::start(rest, flags);
-	// let tokbuf = lexer::tokenize(Some(file), s.as_str());
-	// let (ast, extra_data) = parser::parse(&tokbuf);
-
-	// if flags.debug_lexer {
-	// 	tokbuf.tokens.iter().for_each(|t| println!("{t:?}"));
-	// }
 }
