@@ -1,4 +1,8 @@
 use std::ffi::OsString;
+use std::io::{
+	self,
+	Write,
+};
 use std::iter::IntoIterator;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
@@ -9,7 +13,6 @@ use std::sync::atomic::{
 use std::vec::Vec;
 use std::{
 	fs,
-	io,
 	panic,
 	thread,
 };
@@ -141,6 +144,14 @@ fn worker_loop(
 						Ok(xs) => xs,
 						Err(errs) => todo!(),
 					};
+
+					if state.flags.debug_lexer {
+						let mut handle = io::stderr().lock();
+						for t in tokens.iter() {
+							let _ = write!(handle, "{t:?}\n");
+						}
+					}
+
 					let (ast, _extra_data) = parser::parse(name, &tokens);
 					let mut fdata = state.files.get_mut(&file).unwrap();
 					fdata.tokens = Arc::from(MaybeUninit::new(tokens));
