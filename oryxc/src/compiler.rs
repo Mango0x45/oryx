@@ -171,6 +171,14 @@ fn worker_loop(
 					}
 
 					let (ast, _extra_data) = parser::parse(name, &tokens);
+
+					if state.flags.debug_parser {
+						let mut handle = io::stderr().lock();
+						for n in ast.iter() {
+							let _ = write!(handle, "{n:?}\n");
+						}
+					}
+
 					let mut fdata = state.files.get_mut(&file).unwrap();
 					fdata.tokens = Arc::from(MaybeUninit::new(tokens));
 					fdata.ast = Arc::from(MaybeUninit::new(ast));
