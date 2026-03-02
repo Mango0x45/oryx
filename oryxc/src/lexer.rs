@@ -73,14 +73,11 @@ impl TokenType {
 	}
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Span(usize, usize);
-
 #[derive(Soars)]
 #[soa_derive(Debug)]
 pub struct Token {
 	pub kind: TokenType,
-	pub view: Span,
+	pub view: (usize, usize),
 }
 
 struct LexerContext<'a> {
@@ -141,7 +138,7 @@ pub fn tokenize(s: &str) -> Result<Soa<Token>, OryxError> {
 				};
 				Some(Token {
 					kind,
-					view: Span(i, ctx.pos_a),
+					view: (i, ctx.pos_a),
 				})
 			},
 			'>' if ctx.peek().is_some_and(|c| c == '>') => {
@@ -154,21 +151,21 @@ pub fn tokenize(s: &str) -> Result<Soa<Token>, OryxError> {
 				};
 				Some(Token {
 					kind,
-					view: Span(i, ctx.pos_a),
+					view: (i, ctx.pos_a),
 				})
 			},
 			'&' if ctx.peek().is_some_and(|c| c == '~') => {
 				ctx.next(); /* Consume ‘~’ */
 				Some(Token {
 					kind: TokenType::AmpersandTilde,
-					view: Span(i, j + 1),
+					view: (i, j + 1),
 				})
 			},
 			'!' | '&' | '(' | ')' | '*' | '+' | ',' | '-' | '/' | ';' | '<'
 			| '=' | '>' | '[' | ']' | '^' | '{' | '|' | '}' | '~' | '…' => {
 				Some(Token {
 					kind: unsafe { mem::transmute(c as u8) },
-					view: Span(i, j),
+					view: (i, j),
 				})
 			},
 			'#' => Some(tokenize_number_based(&mut ctx)?),
@@ -178,8 +175,7 @@ pub fn tokenize(s: &str) -> Result<Soa<Token>, OryxError> {
 			_ if unicode::pattern_white_space_p(c) => None,
 			c => {
 				return Err(OryxError::new(
-					i,
-					j,
+					(i, j),
 					format!("Invalid character ‘{c}’"),
 				));
 			},
@@ -190,7 +186,7 @@ pub fn tokenize(s: &str) -> Result<Soa<Token>, OryxError> {
 
 	toks.push(Token {
 		kind: TokenType::Eof,
-		view: Span(s.len() - 1, s.len()),
+		view: (s.len() - 1, s.len()),
 	});
 	return Ok(toks);
 }
@@ -215,7 +211,7 @@ fn skip_comment<'a>(ctx: &mut LexerContext<'a>) -> Result<(), OryxError> {
 			_ => {},
 		};
 	}
-	return Err(OryxError::new(beg, ctx.pos_a, "Unterminated comment"));
+	return Err(OryxError::new((beg, ctx.pos_a), "Unterminated comment"));
 }
 
 fn tokenize_number_based<'a>(
@@ -229,8 +225,7 @@ fn tokenize_number_based<'a>(
 		Some('x') => "0123456789ABCDEF",
 		Some(c @ 'B') | Some(c @ 'O') | Some(c @ 'D') | Some(c @ 'X') => {
 			return Err(OryxError::new(
-				ctx.pos_b,
-				ctx.pos_a,
+				(ctx.pos_b, ctx.pos_a),
 				format!(
 					"Invalid number base specifier ‘{c}’, did you mean ‘{}’?",
 					c.to_ascii_lowercase()
@@ -239,15 +234,13 @@ fn tokenize_number_based<'a>(
 		},
 		Some(c) if c.is_alphanumeric() => {
 			return Err(OryxError::new(
-				ctx.pos_b,
-				ctx.pos_a,
+				(ctx.pos_b, ctx.pos_a),
 				format!("Invalid number base specifier ‘{c}’"),
 			));
 		},
 		_ => {
 			return Err(OryxError::new(
-				i,
-				i + 1,
+				(i, i + 1),
 				"Expected number base specifier after ‘#’",
 			));
 		},
@@ -258,23 +251,20 @@ fn tokenize_number_based<'a>(
 		Some(c) if alphabet.contains(c) => tokenize_number(ctx, alphabet)?,
 		Some(c) if alphabet.len() == 16 && c.is_ascii_hexdigit() => {
 			return Err(OryxError::new(
-				ctx.pos_b,
-				ctx.pos_a,
+				(ctx.pos_b, ctx.pos_a),
 				format!("Hexadecimal digits must be uppercase"),
 			));
 		},
 		Some(c) if c.is_alphanumeric() => {
 			let base = base2str(alphabet.len());
 			return Err(OryxError::new(
-				ctx.pos_b,
-				ctx.pos_a,
+				(ctx.pos_b, ctx.pos_a),
 				format!("Invalid {base} digit ‘{c}’"),
 			));
 		},
 		Some('\'') => {
 			return Err(OryxError::new(
-				ctx.pos_b,
-				ctx.pos_a,
+				(ctx.pos_b, ctx.pos_a),
 				format!(
 					"Numeric literals may not begin with a digit separator"
 				),
@@ -283,13 +273,12 @@ fn tokenize_number_based<'a>(
 		_ => {
 			let base = base2str(alphabet.len());
 			return Err(OryxError::new(
-				beg,
-				end,
+				(beg, end),
 				format!("Expected {base} digit after base specifier"),
 			));
 		},
 	};
-	tok.view = Span(i, ctx.pos_a);
+	tok.view = (i, ctx.pos_a);
 	return Ok(tok);
 }
 
@@ -319,7 +308,7 @@ fn tokenize_number<'a>(
 
 	return Ok(Token {
 		kind: TokenType::Number,
-		view: Span(i, ctx.pos_a),
+		view: (i, ctx.pos_a),
 	});
 }
 
@@ -333,24 +322,21 @@ fn span_raw_number<'a>(
 			Some(c) if alphabet.contains(c) => c,
 			Some(c) if alphabet.len() == 16 && c.is_ascii_hexdigit() => {
 				return Err(OryxError::new(
-					ctx.pos_b,
-					ctx.pos_a,
+					(ctx.pos_b, ctx.pos_a),
 					format!("Hexadecimal digits must be uppercase"),
 				));
 			},
 			Some(c) if c.is_alphanumeric() => {
 				let base = base2str(alphabet.len());
 				return Err(OryxError::new(
-					ctx.pos_b,
-					ctx.pos_a,
+					(ctx.pos_b, ctx.pos_a),
 					format!("Invalid {base} digit ‘{c}’"),
 				));
 			},
 			_ => {
 				let base = base2str(alphabet.len());
 				return Err(OryxError::new(
-					ctx.pos_b,
-					ctx.pos_a,
+					(ctx.pos_b, ctx.pos_a),
 					format!("Expected {base} digit"),
 				));
 			},
@@ -363,8 +349,7 @@ fn span_raw_number<'a>(
 		match c {
 			'\'' if last_was_apos_p => {
 				return Err(OryxError::new(
-					ctx.pos_b,
-					ctx.pos_a + 1,
+					(ctx.pos_b, ctx.pos_a + 1),
 					"Numeric literals may not have adjecent digit separators",
 				));
 			},
@@ -383,8 +368,7 @@ fn span_raw_number<'a>(
 
 	if last_was_apos_p {
 		return Err(OryxError::new(
-			beg,
-			end,
+			(beg, end),
 			"Numeric literals may not end with a digit separator",
 		));
 	}
@@ -401,8 +385,7 @@ fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Result<Token, OryxError> {
 			Some(_) => {},
 			None => {
 				return Err(OryxError::new(
-					i,
-					ctx.pos_a,
+					(i, ctx.pos_a),
 					"Unterminated string literal",
 				));
 			},
@@ -410,7 +393,7 @@ fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Result<Token, OryxError> {
 	}
 	return Ok(Token {
 		kind: TokenType::String,
-		view: Span(i, ctx.pos_a),
+		view: (i, ctx.pos_a),
 	});
 }
 
@@ -419,7 +402,7 @@ fn tokenize_identifier<'a>(ctx: &mut LexerContext<'a>) -> Token {
 	while ctx.peek().is_some_and(unicode::xid_continue_p) {
 		ctx.next();
 	}
-	let view = Span(i, ctx.pos_a);
+	let view = (i, ctx.pos_a);
 	let kind = match KEYWORDS.get(&ctx.string[view.0..view.1]) {
 		Some(kind) => kind.clone(),
 		None => TokenType::Identifier,

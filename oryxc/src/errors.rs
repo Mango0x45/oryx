@@ -97,13 +97,13 @@ pub struct OryxError {
 }
 
 impl OryxError {
-	pub fn new<T>(beg: usize, end: usize, msg: T) -> Self
+	pub fn new<T>(span: (usize, usize), msg: T) -> Self
 	where
 		T: Into<Cow<'static, str>>,
 	{
 		return Self {
-			span: (beg, end),
-			msg:  msg.into(),
+			span,
+			msg: msg.into(),
 		};
 	}
 
