@@ -1,6 +1,5 @@
-use std::ffi::OsStr;
-use std::fmt::Display;
 use std::mem::ManuallyDrop;
+use std::process;
 use std::vec::Vec;
 
 use soa_rs::{
@@ -8,14 +7,12 @@ use soa_rs::{
 	Soars,
 };
 
+use crate::errors::OryxError;
 use crate::lexer::{
 	Token,
 	TokenType,
 };
-use crate::{
-	errors,
-	size,
-};
+use crate::size;
 
 const MIN_PREC: i64 = 0;
 const MAX_PREC: i64 = 6;
@@ -26,6 +23,7 @@ pub enum AstType {
 	Assign,         /* (ident-token, expression) */
 	Block,          /* (extra-data, _) */
 	Dereference,    /* (lhs, _) */
+	Empty,          /* (_, _) */
 	FunCall,        /* (expression, extra-data) */
 	FunProto,       /* (extra-data, _) */
 	Function,       /* (prototype, body) */
@@ -92,18 +90,25 @@ struct Parser<'a> {
 	cursor:     u32,
 	scratch:    Vec<u32>,
 	tokens:     &'a Soa<Token>,
-	filename:   &'a OsStr,
+	errors:     Vec<OryxError>,
 }
 
 impl<'a> Parser<'a> {
-	fn new(filename: &'a OsStr, tokens: &'a Soa<Token>) -> Self {
+	fn err_at_position(&self, i: u32, msg: &str) -> ! {
+		for e in &self.errors {
+			eprintln!("{e}");
+		}
+		process::exit(69);
+	}
+
+	fn new(tokens: &'a Soa<Token>) -> Self {
 		return Self {
 			ast: Soa::with_capacity(size::kibibytes(10)),
 			extra_data: Vec::with_capacity(size::kibibytes(1)),
 			cursor: 0,
 			scratch: Vec::with_capacity(64),
 			tokens,
-			filename,
+			errors: Vec::new(),
 		};
 	}
 
@@ -112,6 +117,16 @@ impl<'a> Parser<'a> {
 		return unsafe {
 			*self.tokens.kind().get_unchecked(self.cursor as usize)
 		};
+	}
+
+	#[inline(always)]
+	fn get_view(&self) -> (usize, usize) {
+		return self.get_view_at(self.cursor);
+	}
+
+	#[inline(always)]
+	fn get_view_at(&self, pos: u32) -> (usize, usize) {
+		return unsafe { *self.tokens.view().get_unchecked(pos as usize) };
 	}
 
 	#[inline(always)]
@@ -139,39 +154,132 @@ impl<'a> Parser<'a> {
 		return (self.extra_data.len() - 1) as u32;
 	}
 
-	fn err_at_position<T>(&self, i: u32, s: T) -> !
-	where
-		T: Display,
-	{
-		errors::err_at_position(self.filename, s);
+	#[inline(always)]
+	fn new_error(&mut self, e: OryxError) {
+		self.errors.push(e);
 	}
 
-	fn parse_toplevel(&mut self) {
-		match self.get() {
-			TokenType::KeywordDef => self.parse_def(),
-			TokenType::Eof => return,
-			_ => {
-				let msg = format!(
-					"Expected top-level statement but got {:?}",
-					self.get()
-				);
-				self.err_at_position(self.cursor, msg.as_str());
+	#[inline(always)]
+	fn sync(&mut self, toks: &[TokenType]) {
+		while !toks.contains(&self.next()) {}
+	}
+
+	fn node_span(&self, node: u32) -> (usize, usize) {
+		let toks = self.ast.tok();
+		let views = self.tokens.view();
+		let (lhs, rhs) = self.node_span_1(node);
+		let (lhs, rhs) = (toks[lhs as usize], toks[rhs as usize]);
+		return (views[lhs as usize].0, views[rhs as usize].1);
+	}
+
+	fn node_span_1(&self, node: u32) -> (u32, u32) {
+		let SubNodes(_0, _1) = self.ast.sub()[node as usize];
+		return match self.ast.kind()[node as usize] {
+			AstType::Assign => (self.node_span_1(_0).0, self.node_span_1(_1).1),
+			AstType::Block => {
+				todo!()
+			},
+			/* (extra-data, _) */
+			AstType::Dereference => (self.node_span_1(_0).0, node),
+			AstType::Empty => (node, node),
+			AstType::FunCall => {
+				todo!()
+			},
+			/* (expression, extra-data) */
+			AstType::FunProto => {
+				todo!()
+			},
+			/* (extra-data, _) */
+			AstType::Function => {
+				todo!()
+			},
+			/* (prototype, body) */
+			AstType::Identifier => (node, node),
+			AstType::MultiDefBind => {
+				todo!()
+			},
+			/* (extra-data, _) */
+			AstType::Number => (node, node),
+			AstType::Pointer => (node, self.node_span_1(_0).1),
+			AstType::Return => {
+				let exprs =
+					unsafe { &self.extra_data[_0 as usize].r#return.exprs };
+				if exprs.len() == 0 {
+					(node, node)
+				} else {
+					let last = *exprs.last().unwrap();
+					(node, self.node_span_1(last).1)
+				}
+			},
+			AstType::String => (node, node),
+			AstType::UnaryOperator => (node, self.node_span_1(_0).1),
+			AstType::BinaryOperator => {
+				(self.node_span_1(_0).0, self.node_span_1(_1).1)
 			},
 		};
 	}
 
+	fn parse_toplevel(&mut self) {
+		let mut syncp = false;
+		match self.get() {
+			TokenType::KeywordDef => match self.parse_def() {
+				Ok(_) => {},
+				Err(e) => {
+					self.new_error(e);
+					syncp = true;
+				},
+			},
+			TokenType::Eof => return,
+			_ => {
+				self.new_error(OryxError::new(
+					self.get_view(),
+					format!(
+						"Expected top-level statement but got {:?}",
+						self.get(),
+					),
+				));
+				syncp = true;
+			},
+		};
+
+		if syncp {
+			self.sync(&[TokenType::Eof, TokenType::KeywordDef]);
+		}
+	}
+
 	fn parse_stmt(&mut self) -> u32 {
-		return match self.get() {
-			TokenType::KeywordDef => self.parse_def(),
-			TokenType::KeywordReturn => {
+		let mut syncp = false;
+		let ret = match self.get() {
+			TokenType::Semicolon => {
+				self.next(); /* Consume ‘}’ */
+				self.new_node(AstNode {
+					kind: AstType::Empty,
+					tok:  self.cursor - 1,
+					sub:  SubNodes::default(),
+				})
+			},
+			TokenType::KeywordDef => match self.parse_def() {
+				Ok(n) => n,
+				Err(e) => {
+					self.new_error(e);
+					syncp = true;
+					u32::MAX /* Dummy value */
+				},
+			},
+			TokenType::KeywordReturn => 'label: {
 				let main_tok = self.cursor;
 				self.next(); /* Consume ‘return’ */
 				let exprs = self.parse_expr_list();
 				if self.get_n_move() != TokenType::Semicolon {
-					self.err_at_position(
-						self.cursor - 1,
+					self.new_error(OryxError::new(
+						(
+							self.get_view_at(main_tok).0,
+							self.get_view_at(self.cursor - 1).1,
+						),
 						"Expected semicolon after return statement",
-					);
+					));
+					syncp = true;
+					break 'label u32::MAX;
 				}
 				let i = self.new_extra_data(ExtraData {
 					r#return: ManuallyDrop::new(ReturnData { exprs }),
@@ -185,54 +293,90 @@ impl<'a> Parser<'a> {
 			t if t.exprp() => {
 				let k = self.parse_expr(MIN_PREC);
 				if self.get_n_move() != TokenType::Semicolon {
-					self.err_at_position(
-						self.cursor - 1,
+					self.new_error(OryxError::new(
+						self.node_span(k),
 						"Expected semicolon after expression",
-					);
+					));
+					syncp = true;
 				}
 				k
 			},
 			_ => {
-				let msg =
-					format!("Expected statement but got {:?}", self.get());
-				self.err_at_position(self.cursor, msg.as_str());
+				self.new_error(OryxError::new(
+					self.get_view(),
+					format!("Expected statement but got {:?}", self.get()),
+				));
+				syncp = true;
+				u32::MAX
 			},
 		};
+
+		if syncp {
+			self.sync(&[
+				TokenType::BraceR,
+				TokenType::Eof,
+				TokenType::KeywordDef,
+				TokenType::KeywordReturn,
+				TokenType::Semicolon,
+			]);
+		}
+
+		return ret;
 	}
 
-	fn parse_def(&mut self) -> u32 {
+	fn parse_def(&mut self) -> Result<u32, OryxError> {
 		let main_tok = self.cursor;
 		if self.get_n_move() != TokenType::KeywordDef {
-			self.err_at_position(self.cursor - 1, "Expected ‘def’");
+			return Err(OryxError::new(
+				self.get_view_at(self.cursor - 1),
+				"Expected ‘def’",
+			));
 		}
 		let lhs = self.parse_decl_list();
 		if lhs.len() == 0 {
-			self.err_at_position(main_tok, "Expected an identifier");
+			return Err(OryxError::new(
+				self.get_view_at(main_tok),
+				"Expected an identifier",
+			));
 		}
 
-		if self.get_n_move() != TokenType::Equals {
-			self.err_at_position(self.cursor - 1, "Expected ‘=’");
+		let t = self.get_n_move();
+		if t != TokenType::Equals {
+			return Err(if t == TokenType::Semicolon {
+				OryxError::new(
+					(self.get_view_at(main_tok).0, self.get_view().1),
+					"Symbols defined with ‘def’ must be initialized",
+				)
+			} else {
+				OryxError::new(
+					self.get_view_at(self.cursor - 1),
+					"Expected ‘=’",
+				)
+			});
 		}
 
 		let rhs = self.parse_expr_list();
 		if rhs.len() == 0 {
-			self.err_at_position(
-				self.cursor - 1,
+			return Err(OryxError::new(
+				self.get_view_at(self.cursor - 1),
 				"Expected expression after ‘=’",
-			);
+			));
 		}
 		if self.get_n_move() != TokenType::Semicolon {
-			self.err_at_position(self.cursor - 1, "Expected semicolon");
+			return Err(OryxError::new(
+				self.get_view_at(self.cursor - 1),
+				"Expected semicolon",
+			));
 		}
 
 		let i = self.new_extra_data(ExtraData {
 			decl: ManuallyDrop::new(DeclData { lhs, rhs }),
 		});
-		return self.new_node(AstNode {
+		return Ok(self.new_node(AstNode {
 			kind: AstType::MultiDefBind,
 			tok:  main_tok,
 			sub:  SubNodes(i as u32, u32::MAX),
-		});
+		}));
 	}
 
 	fn parse_func_proto(&mut self) -> u32 {
@@ -243,7 +387,7 @@ impl<'a> Parser<'a> {
 			return self.new_node(AstNode {
 				kind: AstType::FunProto,
 				tok:  main_tok,
-				sub:  SubNodes(u32::MAX, u32::MAX),
+				sub:  SubNodes::default(),
 			});
 		}
 
@@ -414,11 +558,11 @@ impl<'a> Parser<'a> {
 			| TokenType::Tilde => {
 				let i = self.cursor;
 				self.next();
-				let lhs = self.parse_expr(MAX_PREC);
+				let rhs = self.parse_expr(MAX_PREC);
 				self.new_node(AstNode {
 					kind: AstType::UnaryOperator,
 					tok:  i,
-					sub:  SubNodes(lhs, u32::MAX),
+					sub:  SubNodes(rhs, u32::MAX),
 				})
 			},
 			TokenType::ParenL => {
@@ -530,12 +674,15 @@ impl<'a> Parser<'a> {
 }
 
 pub fn parse(
-	filename: &OsStr,
 	tokens: &Soa<Token>,
-) -> (Soa<AstNode>, Vec<ExtraData>) {
-	let mut p = Parser::new(filename, tokens);
+) -> Result<(Soa<AstNode>, Vec<ExtraData>), Vec<OryxError>> {
+	let mut p = Parser::new(tokens);
 	while p.get() != TokenType::Eof {
 		p.parse_toplevel();
 	}
-	return (p.ast, p.extra_data);
+	return if p.errors.len() != 0 {
+		Err(p.errors)
+	} else {
+		Ok((p.ast, p.extra_data))
+	};
 }

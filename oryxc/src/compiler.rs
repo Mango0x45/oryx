@@ -150,12 +150,11 @@ fn worker_loop(
 		if let Some(job) = job {
 			match job {
 				Job::LexAndParse { file } => {
-					let (name, buffer) = {
+					let buffer = {
 						let fdata = state.files.get(&file).unwrap();
-						(fdata.name.clone(), fdata.buffer.clone())
+						fdata.buffer.clone()
 					};
-					let (name, buffer) = (name.as_ref(), buffer.as_ref());
-					let tokens = match lexer::tokenize(buffer) {
+					let tokens = match lexer::tokenize(buffer.as_ref()) {
 						Ok(xs) => xs,
 						Err(e) => {
 							emit_errors(state.clone(), file, vec![e]);
@@ -170,7 +169,13 @@ fn worker_loop(
 						}
 					}
 
-					let (ast, _extra_data) = parser::parse(name, &tokens);
+					let (ast, _extra_data) = match parser::parse(&tokens) {
+						Ok((ast, _extra_data)) => (ast, _extra_data),
+						Err(errs) => {
+							emit_errors(state.clone(), file, errs);
+							process::exit(1);
+						},
+					};
 
 					if state.flags.debug_parser {
 						let mut handle = io::stderr().lock();
