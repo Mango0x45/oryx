@@ -10,11 +10,13 @@ use std::fmt::{
 	Display,
 	Formatter,
 };
+use std::io::Write;
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::{
 	env,
+	io,
 	process,
 };
 
@@ -145,24 +147,28 @@ impl OryxError {
 		const ERRORBEG: &str = "\x1b[31;1m";
 		const FMTEND: &str = "\x1b[0m";
 
-		eprintln!(
-			"{FNAMEBEG}{}:{line}:{col}:{FMTEND} {ERRORBEG}error:{FMTEND} {self}",
+		let mut handle = io::stderr().lock();
+		let _ = write!(
+			handle,
+			"{FNAMEBEG}{}:{line}:{col}:{FMTEND} {ERRORBEG}error:{FMTEND} {self}\n",
 			filename.as_ref().display()
 		);
-		eprintln!(" {line:>4} │ {errbeg}{ERRORBEG}{errmid}{FMTEND}{errend}");
+		let _ = write!(
+			handle,
+			" {line:>4} │ {errbeg}{ERRORBEG}{errmid}{FMTEND}{errend}\n"
+		);
 		for _ in 0..nspaces(line) {
-			eprint!(" ");
+			let _ = write!(handle, " ");
 		}
-		eprint!("│ ");
+		let _ = write!(handle, "│ ");
 		for _ in 1..col {
-			eprint!(" ");
+			let _ = write!(handle, " ");
 		}
-		eprint!("{ERRORBEG}");
+		let _ = write!(handle, "{ERRORBEG}");
 		for _ in 0..errmid.width().max(1) {
-			eprint!("^");
+			let _ = write!(handle, "^");
 		}
-		eprint!("{FMTEND}");
-		eprintln!();
+		let _ = write!(handle, "{FMTEND}\n");
 	}
 }
 
