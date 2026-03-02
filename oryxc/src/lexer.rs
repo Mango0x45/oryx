@@ -1,13 +1,9 @@
-use std::borrow::Cow;
-use std::ffi::OsStr;
-use std::fmt::Display;
 use std::iter::Peekable;
 use std::mem;
 use std::str::{
 	self,
 	Chars,
 };
-use std::vec::Vec;
 
 use phf;
 use soa_rs::{
@@ -15,10 +11,8 @@ use soa_rs::{
 	Soars,
 };
 
-use crate::{
-	errors,
-	unicode,
-};
+use crate::errors::OryxError;
+use crate::unicode;
 
 #[allow(dead_code)]
 #[repr(u8)]
@@ -60,17 +54,6 @@ pub enum TokenType {
 }
 
 impl TokenType {
-	pub fn literalp(&self) -> bool {
-		return match self {
-			Self::Identifier
-			| Self::KeywordDef
-			| Self::KeywordFunc
-			| Self::Number
-			| Self::String => true,
-			_ => false,
-		};
-	}
-
 	/* Tokens that start an expression */
 	pub fn exprp(&self) -> bool {
 		return match self {
@@ -100,41 +83,20 @@ pub struct Token {
 	pub view: Span,
 }
 
-pub struct Error {
-	pub pos: usize,
-	pub msg: Cow<'static, str>,
-}
-
-impl Error {
-	fn new<T>(pos: usize, msg: T) -> Self
-	where
-		T: Into<Cow<'static, str>>,
-	{
-		return Self {
-			pos,
-			msg: msg.into(),
-		};
-	}
-}
-
 struct LexerContext<'a> {
-	pos_a:          usize, /* Pos [a]fter char */
-	pos_b:          usize, /* Pos [b]efore char */
-	chars:          Peekable<Chars<'a>>,
-	string:         &'a str,
-	filename:       &'a OsStr,
-	expect_punct_p: bool,
+	pos_a:  usize, /* Pos [a]fter char */
+	pos_b:  usize, /* Pos [b]efore char */
+	chars:  Peekable<Chars<'a>>,
+	string: &'a str,
 }
 
 impl<'a> LexerContext<'a> {
-	fn new(filename: &'a OsStr, string: &'a str) -> Self {
+	fn new(string: &'a str) -> Self {
 		return Self {
 			pos_a: 0,
 			pos_b: 0,
 			chars: string.chars().peekable(),
 			string,
-			filename,
-			expect_punct_p: false,
 		};
 	}
 
@@ -150,22 +112,6 @@ impl<'a> LexerContext<'a> {
 	fn peek(&mut self) -> Option<char> {
 		return self.chars.peek().copied();
 	}
-
-	fn err_at_position<S>(&self, s: S) -> !
-	where
-		S: Display,
-	{
-		errors::err_at_position(self.filename, s);
-	}
-
-	#[inline(always)]
-	fn literal_spacing_guard(&self) {
-		if self.expect_punct_p {
-			self.err_at_position(
-				"Two literals may not be directly adjacent to each other",
-			);
-		}
-	}
 }
 
 static KEYWORDS: phf::Map<&'static str, TokenType> = phf::phf_map! {
@@ -174,16 +120,15 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf::phf_map! {
 	"return" => TokenType::KeywordReturn,
 };
 
-pub fn tokenize(filename: &OsStr, s: &str) -> Result<Soa<Token>, Vec<Error>> {
+pub fn tokenize(s: &str) -> Result<Soa<Token>, OryxError> {
 	let mut toks = Soa::<Token>::with_capacity(s.len() / 2);
-	let mut ctx = LexerContext::new(filename, s);
+	let mut ctx = LexerContext::new(s);
 
 	while let Some(c) = ctx.next() {
 		let (i, j) = (ctx.pos_b, ctx.pos_a);
 		if let Some(tok) = match c {
 			'/' if ctx.peek().is_some_and(|c| c == '*') => {
-				skip_comment(&mut ctx);
-				ctx.expect_punct_p = false;
+				skip_comment(&mut ctx)?;
 				None
 			},
 			'<' if ctx.peek().is_some_and(|c| c == '<') => {
@@ -226,34 +171,19 @@ pub fn tokenize(filename: &OsStr, s: &str) -> Result<Soa<Token>, Vec<Error>> {
 					view: Span(i, j),
 				})
 			},
-			'#' => {
-				ctx.literal_spacing_guard();
-				Some(tokenize_number_based(&mut ctx))
-			},
-			'0'..='9' => {
-				ctx.literal_spacing_guard();
-				Some(tokenize_number(&mut ctx, "0123456789"))
-			},
-			'"' => {
-				ctx.literal_spacing_guard();
-				Some(tokenize_string(&mut ctx))
-			},
-			_ if unicode::xid_start_p(c) => {
-				ctx.literal_spacing_guard();
-				Some(tokenize_identifier(&mut ctx))
-			},
-			_ if unicode::pattern_white_space_p(c) => {
-				if !unicode::default_ignorable_code_point_p(c) {
-					ctx.expect_punct_p = false;
-				}
-				None
-			},
+			'#' => Some(tokenize_number_based(&mut ctx)?),
+			'0'..='9' => Some(tokenize_number(&mut ctx, "0123456789")?),
+			'"' => Some(tokenize_string(&mut ctx)?),
+			_ if unicode::xid_start_p(c) => Some(tokenize_identifier(&mut ctx)),
+			_ if unicode::pattern_white_space_p(c) => None,
 			c => {
-				let msg = format!("Invalid character ‘{c}’");
-				ctx.err_at_position(msg.as_str());
+				return Err(OryxError::new(
+					i,
+					j,
+					format!("Invalid character ‘{c}’"),
+				));
 			},
 		} {
-			ctx.expect_punct_p = tok.kind.literalp();
 			toks.push(tok);
 		}
 	}
@@ -265,7 +195,8 @@ pub fn tokenize(filename: &OsStr, s: &str) -> Result<Soa<Token>, Vec<Error>> {
 	return Ok(toks);
 }
 
-fn skip_comment<'a>(ctx: &mut LexerContext<'a>) {
+fn skip_comment<'a>(ctx: &mut LexerContext<'a>) -> Result<(), OryxError> {
+	let beg = ctx.pos_b;
 	ctx.next(); /* Consume ‘*’ */
 	let mut depth = 1;
 	while let Some(c) = ctx.next() {
@@ -278,118 +209,169 @@ fn skip_comment<'a>(ctx: &mut LexerContext<'a>) {
 				depth -= 1;
 				ctx.next(); /* Consume ‘/’ */
 				if depth == 0 {
-					return;
+					return Ok(());
 				}
 			},
 			_ => {},
 		};
 	}
-	ctx.err_at_position("Unterminated comment");
+	return Err(OryxError::new(beg, ctx.pos_a, "Unterminated comment"));
 }
 
-fn tokenize_number_based<'a>(ctx: &mut LexerContext<'a>) -> Token {
+fn tokenize_number_based<'a>(
+	ctx: &mut LexerContext<'a>,
+) -> Result<Token, OryxError> {
 	let i = ctx.pos_b;
 	let alphabet = match ctx.next() {
 		Some('b') => "01",
 		Some('o') => "01234567",
 		Some('d') => "0123456789",
 		Some('x') => "0123456789ABCDEF",
-		Some(c) => {
-			let msg = format!("Invalid number base specifier ‘{c}’");
-			ctx.err_at_position(msg.as_str());
+		Some(c @ 'B') | Some(c @ 'O') | Some(c @ 'D') | Some(c @ 'X') => {
+			return Err(OryxError::new(
+				ctx.pos_b,
+				ctx.pos_a,
+				format!(
+					"Invalid number base specifier ‘{c}’, did you mean ‘{}’?",
+					c.to_ascii_lowercase()
+				),
+			));
 		},
-		None => ctx.err_at_position("Expected number base specifier after ‘#’"),
+		Some(c) if c.is_alphanumeric() => {
+			return Err(OryxError::new(
+				ctx.pos_b,
+				ctx.pos_a,
+				format!("Invalid number base specifier ‘{c}’"),
+			));
+		},
+		_ => {
+			return Err(OryxError::new(
+				i,
+				i + 1,
+				"Expected number base specifier after ‘#’",
+			));
+		},
 	};
+
+	let (beg, end) = (ctx.pos_b, ctx.pos_a);
 	let mut tok = match ctx.next() {
-		Some(c) if alphabet.contains(c) => tokenize_number(ctx, alphabet),
-		Some(c) => {
-			let base = match alphabet.len() {
-				2 => "binary",
-				8 => "octal",
-				10 => "decimal",
-				16 => "hexadecimal",
-				_ => unreachable!(),
-			};
-			let msg = format!("Invalid {base} digit ‘{c}’");
-			ctx.err_at_position(msg.as_str());
+		Some(c) if alphabet.contains(c) => tokenize_number(ctx, alphabet)?,
+		Some(c) if alphabet.len() == 16 && c.is_ascii_hexdigit() => {
+			return Err(OryxError::new(
+				ctx.pos_b,
+				ctx.pos_a,
+				format!("Hexadecimal digits must be uppercase"),
+			));
 		},
-		None => ctx.err_at_position("Expected number after base specifier"),
+		Some(c) if c.is_alphanumeric() => {
+			let base = base2str(alphabet.len());
+			return Err(OryxError::new(
+				ctx.pos_b,
+				ctx.pos_a,
+				format!("Invalid {base} digit ‘{c}’"),
+			));
+		},
+		Some('\'') => {
+			return Err(OryxError::new(
+				ctx.pos_b,
+				ctx.pos_a,
+				format!(
+					"Numeric literals may not begin with a digit separator"
+				),
+			));
+		},
+		_ => {
+			let base = base2str(alphabet.len());
+			return Err(OryxError::new(
+				beg,
+				end,
+				format!("Expected {base} digit after base specifier"),
+			));
+		},
 	};
 	tok.view = Span(i, ctx.pos_a);
-	return tok;
+	return Ok(tok);
 }
 
 fn tokenize_number<'a>(
 	ctx: &mut LexerContext<'a>,
 	alphabet: &'static str,
-) -> Token {
+) -> Result<Token, OryxError> {
 	let i = ctx.pos_b;
-	span_raw_number(ctx, alphabet, true);
+	span_raw_number(ctx, alphabet, true)?;
 
 	/* Fractional part */
 	if ctx.peek().is_some_and(|c| c == '.') {
 		ctx.next();
 		if ctx.peek().is_some_and(|c| alphabet.contains(c)) {
-			span_raw_number(ctx, alphabet, false);
+			span_raw_number(ctx, alphabet, false)?;
 		}
 	}
 
 	/* Exponential part */
 	if ctx.peek().is_some_and(|c| c == 'e') {
 		ctx.next();
-		span_raw_number(ctx, alphabet, false);
+		if ctx.peek().is_some_and(|c| c == '+' || c == '-') {
+			ctx.next();
+		}
+		span_raw_number(ctx, alphabet, false)?;
 	}
 
-	return Token {
+	return Ok(Token {
 		kind: TokenType::Number,
 		view: Span(i, ctx.pos_a),
-	};
+	});
 }
 
 fn span_raw_number<'a>(
 	ctx: &mut LexerContext<'a>,
 	alphabet: &'static str,
 	first_digit_lexed_p: bool,
-) {
+) -> Result<(), OryxError> {
 	if !first_digit_lexed_p {
 		match ctx.next() {
 			Some(c) if alphabet.contains(c) => c,
-			Some(c) => {
-				let base = match alphabet.len() {
-					2 => "binary",
-					8 => "octal",
-					10 => "decimal",
-					16 => "hexadecimal",
-					_ => unreachable!(),
-				};
-				let msg = format!("Invalid {base} digit ‘{c}’");
-				ctx.err_at_position(msg.as_str());
+			Some(c) if alphabet.len() == 16 && c.is_ascii_hexdigit() => {
+				return Err(OryxError::new(
+					ctx.pos_b,
+					ctx.pos_a,
+					format!("Hexadecimal digits must be uppercase"),
+				));
 			},
-			None => {
-				let base = match alphabet.len() {
-					2 => "binary",
-					8 => "octal",
-					10 => "decimal",
-					16 => "hexadecimal",
-					_ => unreachable!(),
-				};
-				let msg = format!(
-					"Expected {base} digit but reached end-of-file instead"
-				);
-				ctx.err_at_position(msg.as_str());
+			Some(c) if c.is_alphanumeric() => {
+				let base = base2str(alphabet.len());
+				return Err(OryxError::new(
+					ctx.pos_b,
+					ctx.pos_a,
+					format!("Invalid {base} digit ‘{c}’"),
+				));
+			},
+			_ => {
+				let base = base2str(alphabet.len());
+				return Err(OryxError::new(
+					ctx.pos_b,
+					ctx.pos_a,
+					format!("Expected {base} digit"),
+				));
 			},
 		};
 	}
 
+	let (mut beg, mut end) = (0, 0);
 	let mut last_was_apos_p = false;
 	while let Some(c) = ctx.peek() {
 		match c {
-			'\'' if last_was_apos_p => ctx.err_at_position(
-				"Multiple concurrent digit separators in numeric literal",
-			),
+			'\'' if last_was_apos_p => {
+				return Err(OryxError::new(
+					ctx.pos_b,
+					ctx.pos_a + 1,
+					"Numeric literals may not have adjecent digit separators",
+				));
+			},
 			'\'' => {
 				last_was_apos_p = true;
 				ctx.next();
+				(beg, end) = (ctx.pos_b, ctx.pos_a);
 			},
 			_ if alphabet.contains(c) => {
 				last_was_apos_p = false;
@@ -400,27 +382,36 @@ fn span_raw_number<'a>(
 	}
 
 	if last_was_apos_p {
-		ctx.err_at_position(
+		return Err(OryxError::new(
+			beg,
+			end,
 			"Numeric literals may not end with a digit separator",
-		);
+		));
 	}
+
+	return Ok(());
 }
 
-fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Token {
+fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Result<Token, OryxError> {
 	let i = ctx.pos_b;
+
 	loop {
-		if let Some(c) = ctx.next() {
-			if c == '"' {
-				break;
-			}
-		} else {
-			ctx.err_at_position("Unterminated string");
+		match ctx.next() {
+			Some(c) if c == '"' => break,
+			Some(_) => {},
+			None => {
+				return Err(OryxError::new(
+					i,
+					ctx.pos_a,
+					"Unterminated string literal",
+				));
+			},
 		}
 	}
-	return Token {
+	return Ok(Token {
 		kind: TokenType::String,
 		view: Span(i, ctx.pos_a),
-	};
+	});
 }
 
 fn tokenize_identifier<'a>(ctx: &mut LexerContext<'a>) -> Token {
@@ -434,4 +425,14 @@ fn tokenize_identifier<'a>(ctx: &mut LexerContext<'a>) -> Token {
 		None => TokenType::Identifier,
 	};
 	return Token { kind, view };
+}
+
+fn base2str(n: usize) -> &'static str {
+	return match n {
+		2 => "binary",
+		8 => "octal",
+		10 => "decimal",
+		16 => "hexadecimal",
+		_ => unreachable!(),
+	};
 }

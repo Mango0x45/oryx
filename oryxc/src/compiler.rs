@@ -14,6 +14,7 @@ use std::vec::Vec;
 use std::{
 	fs,
 	panic,
+	process,
 	thread,
 };
 
@@ -26,6 +27,7 @@ use crossbeam_deque::{
 use dashmap::DashMap;
 use soa_rs::Soa;
 
+use crate::errors::OryxError;
 use crate::lexer::Token;
 use crate::parser::AstNode;
 use crate::{
@@ -111,7 +113,7 @@ where
 		let stealer_view = Arc::clone(&stealer_view);
 		let state = Arc::clone(&state);
 		threads.push(thread::spawn(move || {
-			worker_loop(id, w, stealer_view, state);
+			worker_loop(id, state, w, stealer_view);
 		}));
 	}
 
@@ -120,11 +122,24 @@ where
 	}
 }
 
+fn emit_errors<T>(state: Arc<CompilerState>, file: FileId, errors: T)
+where
+	T: IntoIterator<Item = OryxError>,
+{
+	let (name, buffer) = {
+		let fdata = state.files.get(&file).unwrap();
+		(fdata.name.clone(), fdata.buffer.clone())
+	};
+	for e in errors.into_iter() {
+		e.report(name.as_ref(), buffer.as_ref());
+	}
+}
+
 fn worker_loop(
 	id: usize,
+	state: Arc<CompilerState>,
 	queue: Worker<Job>,
 	stealers: Arc<[Stealer<Job>]>,
-	state: Arc<CompilerState>,
 ) {
 	loop {
 		if state.njobs.load(Ordering::SeqCst) == 0 {
@@ -140,9 +155,12 @@ fn worker_loop(
 						(fdata.name.clone(), fdata.buffer.clone())
 					};
 					let (name, buffer) = (name.as_ref(), buffer.as_ref());
-					let tokens = match lexer::tokenize(name, buffer) {
+					let tokens = match lexer::tokenize(buffer) {
 						Ok(xs) => xs,
-						Err(errs) => todo!(),
+						Err(e) => {
+							emit_errors(state.clone(), file, vec![e]);
+							process::exit(1);
+						},
 					};
 
 					if state.flags.debug_lexer {

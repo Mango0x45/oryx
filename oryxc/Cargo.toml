@@ -11,3 +11,4 @@ lexopt = "0.1.0"
 # num-rational = "0.4.2"
 phf = { version = "0.13.1", features = ["macros"] }
 soa-rs = "0.9.1"
+unicode-width = "0.2.2"

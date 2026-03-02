@@ -1,8 +1,15 @@
+use std::borrow::Cow;
+use std::convert::AsRef;
+use std::error::Error;
 use std::ffi::{
 	OsStr,
 	OsString,
 };
-use std::fmt::Display;
+use std::fmt::{
+	self,
+	Display,
+	Formatter,
+};
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -10,6 +17,13 @@ use std::{
 	env,
 	process,
 };
+
+use unicode_width::UnicodeWidthStr;
+
+use crate::unicode;
+
+const TAB_AS_SPACES: &'static str = "    ";
+const TABSIZE: usize = TAB_AS_SPACES.len();
 
 pub fn progname() -> &'static OsString {
 	static ARGV0: OnceLock<OsString> = OnceLock::new();
@@ -65,3 +79,109 @@ where
 	eprintln!("{}: \x1b[31;1mError:\x1b[0m {}", filename.display(), s);
 	process::exit(1);
 }
+
+#[derive(Debug)]
+pub struct OryxError {
+	pub span: (usize, usize),
+	pub msg:  Cow<'static, str>,
+}
+
+impl OryxError {
+	pub fn new<T>(beg: usize, end: usize, msg: T) -> Self
+	where
+		T: Into<Cow<'static, str>>,
+	{
+		return Self {
+			span: (beg, end),
+			msg:  msg.into(),
+		};
+	}
+
+	pub fn report<Tf, Tb>(&self, filename: &Tf, buffer: &Tb)
+	where
+		Tf: AsRef<OsStr>,
+		Tb: AsRef<str>,
+	{
+		fn nspaces(n: i32) -> i32 {
+			return match () {
+				() if n < 10000 => 6,
+				() if n < 100000 => 7,
+				() if n < 1000000 => 8,
+				() if n < 10000000 => 9,
+				() if n < 100000000 => 10,
+				() if n < 1000000000 => 11,
+				() => 12,
+			};
+		}
+
+		let buffer = buffer.as_ref();
+		let (mut line, mut linebeg, mut lineend) = (1, 0, buffer.len());
+		for (i, c) in buffer.char_indices() {
+			if unicode::line_terminator_p(c) {
+				if i >= self.span.0 {
+					lineend = i;
+					break;
+				}
+				line += 1;
+				linebeg = i + c.len_utf8();
+			}
+		}
+
+		let (spanbeg, spanend) = (self.span.0, self.span.1.min(lineend));
+
+		let errbeg = new_string_with_spaces(&buffer[linebeg..spanbeg]);
+		let errmid = new_string_with_spaces(&buffer[spanbeg..spanend]);
+		let errend = new_string_with_spaces(&buffer[spanend..lineend]);
+
+		let errmid = match errmid.len() {
+			0 => "_".to_string(),
+			_ => errmid,
+		};
+
+		/* TODO: Do tab math */
+		let col = errbeg.width() + 1;
+
+		const FNAMEBEG: &str = "\x1b[37;1m";
+		const ERRORBEG: &str = "\x1b[31;1m";
+		const FMTEND: &str = "\x1b[0m";
+
+		eprintln!(
+			"{FNAMEBEG}{}:{line}:{col}:{FMTEND} {ERRORBEG}error:{FMTEND} {self}",
+			filename.as_ref().display()
+		);
+		eprintln!(" {line:>4} │ {errbeg}{ERRORBEG}{errmid}{FMTEND}{errend}");
+		for _ in 0..nspaces(line) {
+			eprint!(" ");
+		}
+		eprint!("│ ");
+		for _ in 1..col {
+			eprint!(" ");
+		}
+		eprint!("{ERRORBEG}");
+		for _ in 0..errmid.width().max(1) {
+			eprint!("^");
+		}
+		eprint!("{FMTEND}");
+		eprintln!();
+	}
+}
+
+fn new_string_with_spaces(s: &str) -> String {
+	let ntabs = s.bytes().filter(|b| *b == b'\t').count();
+	let mut buf = String::with_capacity(s.len() + ntabs * (TABSIZE - 1));
+	for c in s.chars() {
+		match c {
+			'\t' => buf.push_str(TAB_AS_SPACES),
+			_ => buf.push(c),
+		}
+	}
+	return buf;
+}
+
+impl Display for OryxError {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		return write!(f, "{}", self.msg);
+	}
+}
+
+impl Error for OryxError {}
