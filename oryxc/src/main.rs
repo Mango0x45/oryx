@@ -31,6 +31,7 @@ impl Flags {
 		let mut rest = Vec::with_capacity(env::args().len());
 		let mut flags = Flags::default();
 		let mut parser = lexopt::Parser::from_env();
+		parser.set_short_equals(false);
 
 		while let Some(arg) = parser.next()? {
 			match arg {

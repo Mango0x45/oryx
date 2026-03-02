@@ -7,7 +7,7 @@ edition = "2024"
 crossbeam-deque = "0.8.6"
 dashmap = "6.1.0"
 # icu = { version = "2.1.1", features = ["compiled_data"] }
-lexopt = "0.1.0"
+lexopt = "0.3.2"
 # num-rational = "0.4.2"
 phf = { version = "0.13.1", features = ["macros"] }
 soa-rs = "0.9.1"
