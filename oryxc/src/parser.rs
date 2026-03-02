@@ -31,10 +31,10 @@ pub enum AstType {
 	Function,       /* (prototype, body) */
 	Identifier,     /* (_, _) */
 	MultiDefBind,   /* (extra-data, _) */
-	Number,         /* (token, _) */
+	Number,         /* (_, _) */
 	Pointer,        /* (rhs, _) */
 	Return,         /* (extra-data, _) */
-	String,         /* (token, _) */
+	String,         /* (_, _) */
 	UnaryOperator,  /* (rhs, _) */
 	BinaryOperator, /* (lhs, rhs) */
 }
