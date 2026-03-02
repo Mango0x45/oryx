@@ -41,7 +41,7 @@ impl Flags {
 				Short('s') | Long("error-style") => {
 					/* TODO: Check for error (user could pass the flag twice) */
 					/* TODO: Don’t unwrap */
-					errors::ERROR_STYLE.set(
+					let _ = errors::ERROR_STYLE.set(
 						match parser.value()?.to_str().unwrap() {
 							"oneline" => errors::ErrorStyle::OneLine,
 							"standard" => errors::ErrorStyle::Standard,
