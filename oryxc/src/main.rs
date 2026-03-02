@@ -37,6 +37,17 @@ impl Flags {
 				Short('h') | Long("help") => flags.help = true,
 				Short('l') | Long("debug-lexer") => flags.debug_lexer = true,
 				Short('p') | Long("debug-parser") => flags.debug_parser = true,
+				Short('s') | Long("error-style") => {
+					/* TODO: Check for error (user could pass the flag twice) */
+					/* TODO: Don’t unwrap */
+					errors::ERROR_STYLE.set(
+						match parser.value()?.to_str().unwrap() {
+							"oneline" => errors::ErrorStyle::OneLine,
+							"standard" => errors::ErrorStyle::Standard,
+							_ => Err("invalid value for -s/--error-style")?,
+						},
+					);
+				},
 				Short('t') | Long("threads") => {
 					flags.threads = parser.value()?.parse()?;
 					if flags.threads == 0 {
@@ -64,7 +75,10 @@ impl Flags {
 
 fn usage() {
 	eprintln!(
-		concat!("Usage: {0} [-lp] [-t threads]\n", "       {0} -h"),
+		concat!(
+			"Usage: {0} [-lp] [-s oneline|standard] [-t threads]\n",
+			"       {0} -h",
+		),
 		errors::progname().display()
 	);
 }

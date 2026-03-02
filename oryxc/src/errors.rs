@@ -27,6 +27,14 @@ use crate::unicode;
 const TAB_AS_SPACES: &'static str = "    ";
 const TABSIZE: usize = TAB_AS_SPACES.len();
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum ErrorStyle {
+	OneLine,
+	Standard,
+}
+
+pub static ERROR_STYLE: OnceLock<ErrorStyle> = OnceLock::new();
+
 pub fn progname() -> &'static OsString {
 	static ARGV0: OnceLock<OsString> = OnceLock::new();
 	return ARGV0.get_or_init(|| {
@@ -153,6 +161,13 @@ impl OryxError {
 			"{FNAMEBEG}{}:{line}:{col}:{FMTEND} {ERRORBEG}error:{FMTEND} {self}\n",
 			filename.as_ref().display()
 		);
+
+		if *ERROR_STYLE.get_or_init(|| ErrorStyle::Standard)
+			== ErrorStyle::OneLine
+		{
+			return;
+		}
+
 		let _ = write!(
 			handle,
 			" {line:>4} │ {errbeg}{ERRORBEG}{errmid}{FMTEND}{errend}\n"
