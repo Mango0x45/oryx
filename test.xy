@@ -19,15 +19,20 @@ def foo = func {
  * }; */
 
 def main′ = func {
+	def foo, bar, baz;
 	puts("Hello, sailor!");
+	69 + ~420
 	some_func(#b10.1100'1001e+11);
+	return 5
 	slices_sort(my_slice, func(x, y int) int {
 		return x - y;
 	});
 };
 
+69'420 - one;
 def some_func = func(n u32) u32 { return n * 2; };
 
 /* def MY_FLOAT = union { f f64; n u64; } { n = 0x482DEF }.f */
 
 def main = func { main′(); };
+     foobar
