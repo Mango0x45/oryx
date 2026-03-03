@@ -1,3 +1,8 @@
+use std::fmt::{
+	self,
+	Debug,
+	Formatter,
+};
 use std::mem::ManuallyDrop;
 use std::process;
 use std::vec::Vec;
@@ -37,8 +42,19 @@ pub enum AstType {
 	BinaryOperator, /* (lhs, rhs) */
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct SubNodes(u32, u32);
+
+impl Debug for SubNodes {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		let __ = format_args!("_");
+		return f
+			.debug_tuple("SubNodes")
+			.field(if self.0 != u32::MAX { &self.0 } else { &__ })
+			.field(if self.1 != u32::MAX { &self.1 } else { &__ })
+			.finish();
+	}
+}
 
 impl Default for SubNodes {
 	fn default() -> Self {
