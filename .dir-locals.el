@@ -1,1 +1,1 @@
-((nil . ((compile-command . "cd oryxc && cargo build --message-format short"))))
+((nil . ((compile-command . "cargo build --message-format short"))))
