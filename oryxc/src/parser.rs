@@ -487,8 +487,8 @@ impl<'a> Parser<'a> {
 			if p.get_n_move() != TokenType::ParenR {
 				/* TODO: Highlight the entire argument list */
 				return Err(OryxError::new(
-					p.get_view_at(parenl), /* TODO: Is this the right token? */
-					"parameter list missing closing parenthesis",
+					p.get_view_at(parenl),
+					"parameter list missing a closing parenthesis",
 				));
 			}
 
