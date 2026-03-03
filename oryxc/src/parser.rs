@@ -20,7 +20,8 @@ use crate::size;
 
 const MAX_PREC: i64 = 6;
 
-/* Remember to edit the cases in Parser.node_span_1() when editing this list! */
+/* Remember to edit the cases in Parser.node_span_1() when editing
+ * this list! */
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AstType {
@@ -173,14 +174,14 @@ impl<'a> Parser<'a> {
 			},
 			AstType::Dereference => (self.node_span_1(_0).0, node),
 			AstType::FunProto => {
-                let nargs = self.extra_data[_0 as usize];
-                let nrets = self.extra_data[_1 as usize];
-                let rhs = match (nargs, nrets) {
-                    (0, 0) => node,
-                    (_, 0) => self.extra_data[(_0 + nargs) as usize],
-                    (_, _) => self.extra_data[(_1 + nrets) as usize],
-                };
-                (node, self.node_span_1(rhs).1)
+				let nargs = self.extra_data[_0 as usize];
+				let nrets = self.extra_data[_1 as usize];
+				let rhs = match (nargs, nrets) {
+					(0, 0) => node,
+					(_, 0) => self.extra_data[(_0 + nargs) as usize],
+					(_, _) => self.extra_data[(_1 + nrets) as usize],
+				};
+				(node, self.node_span_1(rhs).1)
 			},
 			AstType::Identifier => (node, node),
 			AstType::MultiDefBind => {
