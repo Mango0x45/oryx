@@ -1,7 +1,7 @@
 def puts = $foreign("puts", func(s ^u8));
 
 /*
-def foo = func {
+def foo = func() {
 	let my_string =
 		\ This is my line
 		\ this is a second line
@@ -18,21 +18,17 @@ def foo = func {
  * 		dst[i] = v[i] + u[i];
  * }; */
 
-def main′ = func {
-	def foo, bar, baz;
+def main′ = func() {
 	puts("Hello, sailor!");
-	69 + ~420
 	some_func(#b10.1100'1001e+11);
-	return 5
+    x, y = 69, 420;
 	slices_sort(my_slice, func(x, y int) int {
 		return x - y;
 	});
 };
 
-69'420 - one;
 def some_func = func(n u32) u32 { return n * 2; };
 
 /* def MY_FLOAT = union { f f64; n u64; } { n = 0x482DEF }.f */
 
-def main = func { main′(); };
-     foobar
+def main = func() { main′(); };

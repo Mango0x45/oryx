@@ -11,13 +11,11 @@ use std::fmt::{
 	Formatter,
 };
 use std::io::Write;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::{
 	env,
 	io,
-	process,
 };
 
 use unicode_width::UnicodeWidthStr;
@@ -79,15 +77,6 @@ macro_rules! err {
         warn!($err);
 		std::process::exit(1);
 	}};
-}
-
-pub fn err_at_position<T, S>(filename: T, s: S) -> !
-where
-	T: Deref<Target = OsStr>,
-	S: Display,
-{
-	eprintln!("{}: \x1b[31;1mError:\x1b[0m {}", filename.display(), s);
-	process::exit(1);
 }
 
 #[derive(Debug)]

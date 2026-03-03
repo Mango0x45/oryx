@@ -3,8 +3,7 @@ use std::fmt::{
 	Debug,
 	Formatter,
 };
-use std::mem::ManuallyDrop;
-use std::process;
+use std::ops::FnOnce;
 use std::vec::Vec;
 
 use soa_rs::{
@@ -19,24 +18,24 @@ use crate::lexer::{
 };
 use crate::size;
 
-const MIN_PREC: i64 = 0;
 const MAX_PREC: i64 = 6;
 
+/* Remember to edit the cases in Parser.node_span_1() when editing this list! */
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AstType {
-	Assign,         /* (ident-token, expression) */
-	Block,          /* (extra-data, _) */
+	Assign,         /* (extra-data-lhs, extra-data-rhs) */
+	Block,          /* (extra-data, extra-data-len) */
 	Dereference,    /* (lhs, _) */
 	Empty,          /* (_, _) */
 	FunCall,        /* (expression, extra-data) */
-	FunProto,       /* (extra-data, _) */
+	FunProto,       /* (extra-data-args, extra-data-rets) */
 	Function,       /* (prototype, body) */
 	Identifier,     /* (_, _) */
-	MultiDefBind,   /* (extra-data, _) */
+	MultiDefBind,   /* (extra-data-decls, extra-data-exprs) */
 	Number,         /* (_, _) */
 	Pointer,        /* (rhs, _) */
-	Return,         /* (extra-data, _) */
+	Return,         /* (extra-data, extra-data-len) */
 	String,         /* (_, _) */
 	UnaryOperator,  /* (rhs, _) */
 	BinaryOperator, /* (lhs, rhs) */
@@ -70,39 +69,9 @@ pub struct AstNode {
 	pub sub:  SubNodes,
 }
 
-pub struct DeclData {
-	lhs: Vec<(u32, u32)>, /* (ident, type) tuple */
-	rhs: Vec<u32>,
-}
-
-pub struct FunCallData {
-	args: Vec<u32>,
-}
-
-pub struct FunProtoData {
-	args: Vec<(u32, u32)>, /* (ident, type) tuple */
-	ret:  Vec<u32>,
-}
-
-pub struct BlockData {
-	stmts: Vec<u32>,
-}
-
-pub struct ReturnData {
-	exprs: Vec<u32>,
-}
-
-pub union ExtraData {
-	block:    ManuallyDrop<BlockData>,
-	decl:     ManuallyDrop<DeclData>,
-	funcall:  ManuallyDrop<FunCallData>,
-	funproto: ManuallyDrop<FunProtoData>,
-	r#return: ManuallyDrop<ReturnData>,
-}
-
 struct Parser<'a> {
 	ast:        Soa<AstNode>,
-	extra_data: Vec<ExtraData>,
+	extra_data: Vec<u32>,
 	cursor:     u32,
 	scratch:    Vec<u32>,
 	tokens:     &'a Soa<Token>,
@@ -110,13 +79,6 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-	fn err_at_position(&self, i: u32, msg: &str) -> ! {
-		for e in &self.errors {
-			eprintln!("{e}");
-		}
-		process::exit(69);
-	}
-
 	fn new(tokens: &'a Soa<Token>) -> Self {
 		return Self {
 			ast: Soa::with_capacity(size::kibibytes(10)),
@@ -130,9 +92,12 @@ impl<'a> Parser<'a> {
 
 	#[inline(always)]
 	fn get(&self) -> TokenType {
-		return unsafe {
-			*self.tokens.kind().get_unchecked(self.cursor as usize)
-		};
+		return self.get_at(self.cursor);
+	}
+
+	#[inline(always)]
+	fn get_at(&self, pos: u32) -> TokenType {
+		return unsafe { *self.tokens.kind().get_unchecked(pos as usize) };
 	}
 
 	#[inline(always)]
@@ -165,12 +130,6 @@ impl<'a> Parser<'a> {
 	}
 
 	#[inline(always)]
-	fn new_extra_data(&mut self, d: ExtraData) -> u32 {
-		self.extra_data.push(d);
-		return (self.extra_data.len() - 1) as u32;
-	}
-
-	#[inline(always)]
 	fn new_error(&mut self, e: OryxError) {
 		self.errors.push(e);
 	}
@@ -178,6 +137,16 @@ impl<'a> Parser<'a> {
 	#[inline(always)]
 	fn sync(&mut self, toks: &[TokenType]) {
 		while !toks.contains(&self.next()) {}
+	}
+
+	fn scratch_guard<F, R>(&mut self, f: F) -> R
+	where
+		F: FnOnce(&mut Self) -> R,
+	{
+		let n = self.scratch.len();
+		let res = f(self);
+		self.scratch.truncate(n);
+		return res;
 	}
 
 	fn node_span(&self, node: u32) -> (usize, usize) {
@@ -191,45 +160,51 @@ impl<'a> Parser<'a> {
 	fn node_span_1(&self, node: u32) -> (u32, u32) {
 		let SubNodes(_0, _1) = self.ast.sub()[node as usize];
 		return match self.ast.kind()[node as usize] {
-			AstType::Assign => (self.node_span_1(_0).0, self.node_span_1(_1).1),
-			AstType::Block => {
-				todo!()
+			AstType::Assign => {
+				let lhs =
+					self.node_span_1(self.extra_data[(_0 + 1) as usize]).0;
+				let rhs = self
+					.node_span_1(
+						self.extra_data
+							[(_1 + self.extra_data[_1 as usize]) as usize],
+					)
+					.1;
+				(lhs, rhs)
 			},
-			/* (extra-data, _) */
 			AstType::Dereference => (self.node_span_1(_0).0, node),
-			AstType::Empty => (node, node),
-			AstType::FunCall => {
-				todo!()
-			},
-			/* (expression, extra-data) */
 			AstType::FunProto => {
-				todo!()
+                let nargs = self.extra_data[_0 as usize];
+                let nrets = self.extra_data[_1 as usize];
+                let rhs = match (nargs, nrets) {
+                    (0, 0) => node,
+                    (_, 0) => self.extra_data[(_0 + nargs) as usize],
+                    (_, _) => self.extra_data[(_1 + nrets) as usize],
+                };
+                (node, self.node_span_1(rhs).1)
 			},
-			/* (extra-data, _) */
-			AstType::Function => {
-				todo!()
-			},
-			/* (prototype, body) */
 			AstType::Identifier => (node, node),
 			AstType::MultiDefBind => {
-				todo!()
+				let expr = self.extra_data
+					[(_1 + self.extra_data[_1 as usize]) as usize];
+				(node, self.node_span_1(expr).1)
 			},
-			/* (extra-data, _) */
-			AstType::Number => (node, node),
 			AstType::Pointer => (node, self.node_span_1(_0).1),
-			AstType::Return => {
-				let exprs =
-					unsafe { &self.extra_data[_0 as usize].r#return.exprs };
-				if exprs.len() == 0 {
+			AstType::Block | AstType::FunCall | AstType::Return => {
+				if _1 == 0 {
 					(node, node)
 				} else {
-					let last = *exprs.last().unwrap();
-					(node, self.node_span_1(last).1)
+					(
+						node,
+						self.node_span_1(
+							self.extra_data[(_0 + _1 - 1) as usize],
+						)
+						.1,
+					)
 				}
 			},
-			AstType::String => (node, node),
+			AstType::Empty | AstType::Number | AstType::String => (node, node),
 			AstType::UnaryOperator => (node, self.node_span_1(_0).1),
-			AstType::BinaryOperator => {
+			AstType::BinaryOperator | AstType::Function => {
 				(self.node_span_1(_0).0, self.node_span_1(_1).1)
 			},
 		};
@@ -250,7 +225,7 @@ impl<'a> Parser<'a> {
 				self.new_error(OryxError::new(
 					self.get_view(),
 					format!(
-						"Expected top-level statement but got {:?}",
+						"expected top-level statement but got {:?}",
 						self.get(),
 					),
 				));
@@ -285,42 +260,131 @@ impl<'a> Parser<'a> {
 			TokenType::KeywordReturn => 'label: {
 				let main_tok = self.cursor;
 				self.next(); /* Consume ‘return’ */
-				let exprs = self.parse_expr_list();
+				let exprbeg = match self.parse_expr_list() {
+					Ok(i) => i,
+					Err(e) => {
+						self.new_error(e);
+						syncp = true;
+						break 'label u32::MAX;
+					},
+				};
 				if self.get_n_move() != TokenType::Semicolon {
 					self.new_error(OryxError::new(
 						(
 							self.get_view_at(main_tok).0,
 							self.get_view_at(self.cursor - 1).1,
 						),
-						"Expected semicolon after return statement",
+						"expected semicolon after return statement",
 					));
 					syncp = true;
 					break 'label u32::MAX;
 				}
-				let i = self.new_extra_data(ExtraData {
-					r#return: ManuallyDrop::new(ReturnData { exprs }),
-				});
+
+				let nexprs = self.scratch.len() - exprbeg;
+				let extra_data_beg = self.extra_data.len();
+				for x in self.scratch.drain(exprbeg..) {
+					self.extra_data.push(x);
+				}
 				self.new_node(AstNode {
 					kind: AstType::Return,
 					tok:  main_tok,
-					sub:  SubNodes(i, u32::MAX),
+					sub:  SubNodes(extra_data_beg as u32, nexprs as u32),
 				})
 			},
 			t if t.exprp() => {
-				let k = self.parse_expr(MIN_PREC);
-				if self.get_n_move() != TokenType::Semicolon {
-					self.new_error(OryxError::new(
-						self.node_span(k),
-						"Expected semicolon after expression",
-					));
-					syncp = true;
+				/* Här kan vi antigen ha ett uttryck (t.ex. ‘foo()’)
+				 * eller en uttyrckslista som används i en tilldelning
+				 * (t.ex. ‘x, y = 69 420’) */
+
+				match self.scratch_guard(|p| {
+					let lhs = p.parse_expr_list()?;
+					let nlexprs = p.scratch.len() - lhs;
+
+					if nlexprs == 1 && p.get() != TokenType::Equals {
+						if p.get_at(p.cursor - 1) == TokenType::Comma {
+							return Err(OryxError::new(
+								p.get_view_at(p.cursor - 1),
+								"unexpected comma after expression",
+							));
+						}
+						if p.get_n_move() != TokenType::Semicolon {
+							let k = p.scratch[lhs];
+							return Err(OryxError::new(
+								p.node_span(k),
+								"expected semicolon after expression",
+							));
+						}
+						return Ok(p.scratch[lhs]);
+					}
+
+					if p.get_at(p.cursor - 1) == TokenType::Comma {
+						/* Returnera inte felet eftersom återställningen är
+						 * implicit */
+						p.new_error(OryxError::new(
+							p.get_view_at(p.cursor - 1),
+							"assignment expression lists do not accept trailing commas",
+						));
+					}
+
+					let main_tok = p.cursor;
+					if p.get_n_move() != TokenType::Equals {
+						let lexpr = p.scratch[lhs];
+						let rexpr = p.scratch[lhs + nlexprs - 1];
+						return Err(OryxError::new(
+							(p.node_span(lexpr).0, p.node_span(rexpr).1),
+							"expected ‘=’ operator after expression list",
+						));
+					}
+
+					let rhs = p.parse_expr_list()?;
+					let nrexprs = p.scratch.len() - rhs;
+
+					if nrexprs == 0 {
+						return Err(OryxError::new(
+							p.get_view_at(main_tok),
+							"expected expression(s) on the right-hand side of assignment",
+						));
+					}
+					if p.get_at(p.cursor - 1) == TokenType::Comma {
+						/* Returnera inte felet eftersom återställningen är
+						 * implicit */
+						p.new_error(OryxError::new(
+							p.get_view_at(p.cursor - 1),
+							"assignment expression lists do not accept trailing commas",
+						));
+					}
+
+					let extra_data_beg = p.extra_data.len();
+					p.extra_data.push(nlexprs as u32);
+					for x in &p.scratch[lhs..rhs] {
+						p.extra_data.push(*x);
+					}
+					p.extra_data.push(nrexprs as u32);
+					for x in &p.scratch[rhs..] {
+						p.extra_data.push(*x);
+					}
+
+					return Ok(p.new_node(AstNode {
+						kind: AstType::Assign,
+						tok:  main_tok,
+						sub:  SubNodes(
+							extra_data_beg as u32,
+							(extra_data_beg + nlexprs + 1) as u32,
+						),
+					}));
+				}) {
+					Ok(e) => e,
+					Err(e) => {
+						self.new_error(e);
+						syncp = true;
+						u32::MAX
+					},
 				}
-				k
 			},
 			_ => {
 				self.new_error(OryxError::new(
 					self.get_view(),
-					format!("Expected statement but got {:?}", self.get()),
+					format!("expected statement but got {:?}", self.get()),
 				));
 				syncp = true;
 				u32::MAX
@@ -345,140 +409,172 @@ impl<'a> Parser<'a> {
 		if self.get_n_move() != TokenType::KeywordDef {
 			return Err(OryxError::new(
 				self.get_view_at(self.cursor - 1),
-				"Expected ‘def’",
+				"expected ‘def’",
 			));
 		}
-		let lhs = self.parse_decl_list();
-		if lhs.len() == 0 {
+		return self.scratch_guard(|p| {
+			let lhs = p.parse_decl_list()?;
+			if p.scratch.len() - lhs == 0 {
+				return Err(OryxError::new(
+					p.get_view_at(main_tok),
+					"expected an identifier",
+				));
+			}
+
+			let t = p.get_n_move();
+			if t != TokenType::Equals {
+				return Err(if t == TokenType::Semicolon {
+					OryxError::new(
+						(p.get_view_at(main_tok).0, p.get_view().1),
+						"symbols defined with ‘def’ must be initialized",
+					)
+				} else {
+					OryxError::new(p.get_view_at(p.cursor - 1), "expected ‘=’")
+				});
+			}
+
+			let rhs = p.parse_expr_list()?;
+			if p.scratch.len() - rhs == 0 {
+				return Err(OryxError::new(
+					p.get_view_at(p.cursor - 1),
+					"expected expression after ‘=’",
+				));
+			}
+			if p.get_n_move() != TokenType::Semicolon {
+				return Err(OryxError::new(
+					p.get_view_at(p.cursor - 1),
+					"expected semicolon",
+				));
+			}
+
+			let ndecls = (rhs - lhs) / 2;
+			let nexprs = p.scratch.len() - rhs;
+			let declbeg = p.extra_data.len();
+			let exprbeg = declbeg + ndecls * 2 + 1;
+
+			p.extra_data.push(ndecls as u32);
+			for x in &p.scratch[lhs..rhs] {
+				p.extra_data.push(*x);
+			}
+			p.extra_data.push(nexprs as u32);
+			for x in &p.scratch[rhs..] {
+				p.extra_data.push(*x);
+			}
+
+			return Ok(p.new_node(AstNode {
+				kind: AstType::MultiDefBind,
+				tok:  main_tok,
+				sub:  SubNodes(declbeg as u32, exprbeg as u32),
+			}));
+		});
+	}
+
+	fn parse_func_proto(&mut self) -> Result<u32, OryxError> {
+		let main_tok = self.cursor;
+
+		if self.next() != TokenType::ParenL {
 			return Err(OryxError::new(
 				self.get_view_at(main_tok),
-				"Expected an identifier",
+				"expected an argument list after the ‘func’ keyword",
 			));
 		}
 
-		let t = self.get_n_move();
-		if t != TokenType::Equals {
-			return Err(if t == TokenType::Semicolon {
-				OryxError::new(
-					(self.get_view_at(main_tok).0, self.get_view().1),
-					"Symbols defined with ‘def’ must be initialized",
-				)
-			} else {
-				OryxError::new(
-					self.get_view_at(self.cursor - 1),
-					"Expected ‘=’",
-				)
-			});
-		}
+		let parenl = self.cursor;
+		self.next(); /* Consume ‘(’ */
+		return self.scratch_guard(|p| {
+			let lhs = p.parse_decl_list()?;
 
-		let rhs = self.parse_expr_list();
-		if rhs.len() == 0 {
-			return Err(OryxError::new(
-				self.get_view_at(self.cursor - 1),
-				"Expected expression after ‘=’",
-			));
-		}
-		if self.get_n_move() != TokenType::Semicolon {
-			return Err(OryxError::new(
-				self.get_view_at(self.cursor - 1),
-				"Expected semicolon",
-			));
-		}
+			if p.get_n_move() != TokenType::ParenR {
+				/* TODO: Highlight the entire argument list */
+				return Err(OryxError::new(
+					p.get_view_at(parenl), /* TODO: Is this the right token? */
+					"parameter list missing closing parenthesis",
+				));
+			}
 
-		let i = self.new_extra_data(ExtraData {
-			decl: ManuallyDrop::new(DeclData { lhs, rhs }),
+			let t = p.get();
+			let rhs = match t {
+				TokenType::ParenL => {
+					let parenl = p.cursor;
+					p.next(); /* Consume ‘(’ */
+					let i = p.parse_expr_list()?;
+					if p.get_n_move() != TokenType::ParenR {
+						/* TODO: Highlight the entire return list */
+						return Err(OryxError::new(
+							p.get_view_at(parenl),
+							"return list missing closing parenthesis",
+						));
+					}
+					i
+				},
+				_ if t.exprp() => {
+					let k = p.parse_expr(0)?;
+					p.scratch.push(k);
+					p.scratch.len() - 1
+				},
+				_ => p.scratch.len(),
+			};
+
+			let nargs = rhs - lhs;
+			let nrets = p.scratch.len() - rhs;
+			let argbeg = p.extra_data.len();
+			let retbeg = argbeg + nargs * 2 + 1;
+
+			p.extra_data.push(nargs as u32);
+			for x in &p.scratch[lhs..rhs] {
+				p.extra_data.push(*x);
+			}
+			p.extra_data.push(nrets as u32);
+			for x in &p.scratch[rhs..] {
+				p.extra_data.push(*x);
+			}
+
+			return Ok(p.new_node(AstNode {
+				kind: AstType::FunProto,
+				tok:  main_tok,
+				sub:  SubNodes(argbeg as u32, retbeg as u32),
+			}));
 		});
+	}
+
+	fn parse_block(&mut self) -> Result<u32, OryxError> {
+		let main_tok = self.cursor;
+		if self.get_n_move() != TokenType::BraceL {
+			return Err(OryxError::new(
+				self.get_view_at(self.cursor - 1),
+				"expected opening brace",
+			));
+		}
+
+		let scratch_beg = self.scratch.len();
+		while self.get() != TokenType::BraceR {
+			let k = self.parse_stmt();
+			self.scratch.push(k);
+		}
+		self.next(); /* Consume ‘}’ */
+
+		let extra_data_beg = self.extra_data.len();
+		let nstmts = (self.scratch.len() - scratch_beg) as u32;
+
+		for x in self.scratch.drain(scratch_beg..) {
+			self.extra_data.push(x);
+		}
 		return Ok(self.new_node(AstNode {
-			kind: AstType::MultiDefBind,
+			kind: AstType::Block,
 			tok:  main_tok,
-			sub:  SubNodes(i as u32, u32::MAX),
+			sub:  SubNodes(extra_data_beg as u32, nstmts),
 		}));
 	}
 
-	fn parse_func_proto(&mut self) -> u32 {
-		let main_tok = self.cursor;
-
-		/* No params or return */
-		if self.next() != TokenType::ParenL {
-			return self.new_node(AstNode {
-				kind: AstType::FunProto,
-				tok:  main_tok,
-				sub:  SubNodes::default(),
-			});
-		}
-
-		self.next(); /* Consume ‘(’ */
-		let args = self.parse_decl_list();
-
-		if self.get_n_move() != TokenType::ParenR {
-			self.err_at_position(
-				self.cursor - 1,
-				"Expected closing parenthesis",
-			);
-		}
-
-		let t = self.get();
-		let ret = match t {
-			TokenType::ParenL => {
-				self.next(); /* Consume ‘(’ */
-				let xs = self.parse_expr_list();
-				if self.get_n_move() != TokenType::ParenR {
-					self.err_at_position(
-						self.cursor - 1,
-						"Expected closing parenthesis",
-					);
-				}
-				xs
-			},
-			_ if t.exprp() => {
-				// TODO: This is really bad. We should probably optimize
-				// for the small cases (or use an arena?)
-				vec![self.parse_expr(MIN_PREC)]
-			},
-			_ => Vec::new(), /* Doesn’t allocate */
-		};
-
-		let i = self.new_extra_data(ExtraData {
-			funproto: ManuallyDrop::new(FunProtoData { args, ret }),
-		});
-		return self.new_node(AstNode {
-			kind: AstType::FunProto,
-			tok:  main_tok,
-			sub:  SubNodes(i, u32::MAX),
-		});
-	}
-
-	fn parse_block(&mut self) -> u32 {
-		let main_tok = self.cursor;
-		if self.get_n_move() != TokenType::BraceL {
-			self.err_at_position(self.cursor - 1, "Expected opening brace");
-		}
-
-		let mut stmts = Vec::<u32>::with_capacity(64);
-		while self.get() != TokenType::BraceR {
-			stmts.push(self.parse_stmt());
-		}
-		self.next(); /* Consume ‘}’ */
-		let i = self.new_extra_data(ExtraData {
-			block: ManuallyDrop::new(BlockData { stmts }),
-		});
-		return self.new_node(AstNode {
-			kind: AstType::Block,
-			tok:  main_tok,
-			sub:  SubNodes(i, u32::MAX),
-		});
-	}
-
-	fn parse_decl_list(&mut self) -> Vec<(u32, u32)> {
+	fn parse_decl_list(&mut self) -> Result<usize, OryxError> {
 		let scratch_beg = self.scratch.len();
-		let (mut nidents, mut nuntyped) = (0, 0);
+		let mut nuntyped = 0;
 		loop {
 			if self.get() != TokenType::Identifier {
 				break;
 			}
 			self.scratch.push(self.cursor);
 			self.scratch.push(u32::MAX);
-			nidents += 1;
 			nuntyped += 1;
 
 			match self.next() {
@@ -486,7 +582,7 @@ impl<'a> Parser<'a> {
 					self.next();
 				},
 				t if t.exprp() => {
-					let k = self.parse_expr(MIN_PREC);
+					let k = self.parse_expr(0)?;
 					let len = self.scratch.len();
 					for i in 0..nuntyped {
 						self.scratch[len - 1 - 2 * i] = k;
@@ -497,19 +593,20 @@ impl<'a> Parser<'a> {
 			};
 		}
 
-		let mut iter = self.scratch.drain(scratch_beg..);
-		let mut pairs = Vec::with_capacity(nidents);
-		while let (Some(a), Some(b)) = (iter.next(), iter.next()) {
-			pairs.push((a, b));
-		}
-		return pairs;
+		return Ok(scratch_beg);
 	}
 
-	fn parse_expr_list(&mut self) -> Vec<u32> {
+	fn parse_expr_list(&mut self) -> Result<usize, OryxError> {
 		let scratch_beg = self.scratch.len();
 
 		while self.get().exprp() {
-			let k = self.parse_expr(MIN_PREC);
+			let k = match self.parse_expr(0) {
+				Ok(e) => e,
+				Err(e) => {
+					self.scratch.truncate(scratch_beg);
+					return Err(e);
+				},
+			};
 			self.scratch.push(k);
 			if self.get() == TokenType::Comma {
 				self.next();
@@ -518,10 +615,10 @@ impl<'a> Parser<'a> {
 			}
 		}
 
-		return self.scratch.drain(scratch_beg..).collect();
+		return Ok(scratch_beg);
 	}
 
-	fn parse_expr(&mut self, minprec: i64) -> u32 {
+	fn parse_expr(&mut self, minprec: i64) -> Result<u32, OryxError> {
 		fn getprec(t: TokenType) -> i64 {
 			match t {
 				TokenType::ParenL => 6,
@@ -532,13 +629,22 @@ impl<'a> Parser<'a> {
 				| TokenType::AngleR2
 				| TokenType::AngleR3
 				| TokenType::Asterisk
+				| TokenType::Percent
+				| TokenType::Percent2
 				| TokenType::Slash => 5,
 				TokenType::Bar
 				| TokenType::Minus
 				| TokenType::Plus
 				| TokenType::Tilde => 4,
-				TokenType::AngleL | TokenType::AngleR => 3,
-				_ => -1,
+				TokenType::AngleL
+				| TokenType::AngleLEquals
+				| TokenType::AngleR
+				| TokenType::AngleREquals
+				| TokenType::BangEquals
+				| TokenType::Equals2 => 3,
+				TokenType::Ampersand2 => 2,
+				TokenType::Bar2 => 1,
+				_ => 0,
 			}
 		}
 
@@ -568,13 +674,13 @@ impl<'a> Parser<'a> {
 				})
 			},
 			TokenType::Ampersand
-			| TokenType::Exclamation
+			| TokenType::Bang
 			| TokenType::Minus
 			| TokenType::Plus
 			| TokenType::Tilde => {
 				let i = self.cursor;
 				self.next();
-				let rhs = self.parse_expr(MAX_PREC);
+				let rhs = self.parse_expr(MAX_PREC)?;
 				self.new_node(AstNode {
 					kind: AstType::UnaryOperator,
 					tok:  i,
@@ -582,13 +688,14 @@ impl<'a> Parser<'a> {
 				})
 			},
 			TokenType::ParenL => {
+				let parenl = self.cursor;
 				self.next();
-				let k = self.parse_expr(MIN_PREC);
+				let k = self.parse_expr(0)?;
 				if self.get() != TokenType::ParenR {
-					self.err_at_position(
-						self.cursor,
-						"Expected closing parenthesis",
-					);
+					return Err(OryxError::new(
+						self.get_view_at(parenl),
+						"expression missing closing parenthesis",
+					));
 				}
 				self.next(); /* Consume ‘)’ */
 				k
@@ -596,7 +703,7 @@ impl<'a> Parser<'a> {
 			TokenType::Caret => {
 				let tok = self.cursor;
 				self.next();
-				let k = self.parse_expr(MAX_PREC);
+				let k = self.parse_expr(MAX_PREC)?;
 				self.new_node(AstNode {
 					kind: AstType::Pointer,
 					tok,
@@ -605,9 +712,9 @@ impl<'a> Parser<'a> {
 			},
 			TokenType::KeywordFunc => {
 				let tok = self.cursor;
-				let proto = self.parse_func_proto();
+				let proto = self.parse_func_proto()?;
 				if self.get() == TokenType::BraceL {
-					let body = self.parse_block();
+					let body = self.parse_block()?;
 					self.new_node(AstNode {
 						kind: AstType::Function,
 						tok,
@@ -617,7 +724,12 @@ impl<'a> Parser<'a> {
 					proto
 				}
 			},
-			_ => self.err_at_position(self.cursor, "Expected expression"),
+			_ => {
+				return Err(OryxError::new(
+					self.get_view(),
+					"expected expression",
+				));
+			},
 		};
 
 		loop {
@@ -630,22 +742,30 @@ impl<'a> Parser<'a> {
 			lhs = match tok {
 				/* Binop */
 				TokenType::Ampersand
+				| TokenType::Ampersand2
 				| TokenType::AmpersandTilde
+				| TokenType::AngleL
 				| TokenType::AngleL2
 				| TokenType::AngleL3
+				| TokenType::AngleLEquals
+				| TokenType::AngleR
 				| TokenType::AngleR2
 				| TokenType::AngleR3
+				| TokenType::AngleREquals
 				| TokenType::Asterisk
-				| TokenType::Slash
+				| TokenType::BangEquals
 				| TokenType::Bar
+				| TokenType::Bar2
+				| TokenType::Equals2
 				| TokenType::Minus
+				| TokenType::Percent
+				| TokenType::Percent2
 				| TokenType::Plus
-				| TokenType::Tilde
-				| TokenType::AngleL
-				| TokenType::AngleR => {
+				| TokenType::Slash
+				| TokenType::Tilde => {
 					let i = self.cursor;
 					self.next();
-					let rhs = self.parse_expr(prec);
+					let rhs = self.parse_expr(prec)?;
 					self.new_node(AstNode {
 						kind: AstType::BinaryOperator,
 						tok:  i,
@@ -667,17 +787,32 @@ impl<'a> Parser<'a> {
 				TokenType::ParenL => {
 					let tok = self.cursor;
 					self.next();
-					let args = self.parse_expr_list();
-					if self.get_n_move() != TokenType::ParenR {
-						self.err_at_position(self.cursor - 1, "Expected ‘)’");
+					let exprbeg = self.parse_expr_list()?;
+					match self.get_n_move() {
+						TokenType::ParenR => {},
+						TokenType::Comma => {
+							return Err(OryxError::new(
+								self.get_view_at(self.cursor - 1),
+								"empty function parameter",
+							));
+						},
+						_ => {
+							return Err(OryxError::new(
+								/* TODO: Highlight the entire argument list */
+								self.get_view_at(tok),
+								"function call missing closing parenthesis",
+							));
+						},
+					};
+					let nexprs = self.scratch.len() - exprbeg;
+					let extra_data_beg = self.extra_data.len();
+					for x in self.scratch.drain(exprbeg..) {
+						self.extra_data.push(x);
 					}
-					let i = self.new_extra_data(ExtraData {
-						funcall: ManuallyDrop::new(FunCallData { args }),
-					});
 					self.new_node(AstNode {
 						kind: AstType::FunCall,
 						tok,
-						sub: SubNodes(lhs, i),
+						sub: SubNodes(extra_data_beg as u32, nexprs as u32),
 					})
 				},
 
@@ -685,13 +820,13 @@ impl<'a> Parser<'a> {
 			}
 		}
 
-		return lhs;
+		return Ok(lhs);
 	}
 }
 
 pub fn parse(
 	tokens: &Soa<Token>,
-) -> Result<(Soa<AstNode>, Vec<ExtraData>), Vec<OryxError>> {
+) -> Result<(Soa<AstNode>, Vec<u32>), Vec<OryxError>> {
 	let mut p = Parser::new(tokens);
 	while p.get() != TokenType::Eof {
 		p.parse_toplevel();
