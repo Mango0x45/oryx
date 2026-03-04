@@ -132,9 +132,10 @@ impl OryxError {
 		let errmid = new_string_with_spaces(&buffer[spanbeg..spanend]);
 		let errend = new_string_with_spaces(&buffer[spanend..lineend]);
 
-		let errmid = match errmid.len() {
-			0 => "_".to_string(),
-			_ => errmid,
+		let errmid = if errmid.len() == 0 {
+			"_".to_string()
+		} else {
+			errmid
 		};
 
 		/* TODO: Do tab math */
@@ -180,9 +181,10 @@ fn new_string_with_spaces(s: &str) -> String {
 	let ntabs = s.bytes().filter(|b| *b == b'\t').count();
 	let mut buf = String::with_capacity(s.len() + ntabs * (TABSIZE - 1));
 	for c in s.chars() {
-		match c {
-			'\t' => buf.push_str(TAB_AS_SPACES),
-			_ => buf.push(c),
+		if c == '\t' {
+			buf.push_str(TAB_AS_SPACES);
+		} else {
+			buf.push(c);
 		}
 	}
 	return buf;

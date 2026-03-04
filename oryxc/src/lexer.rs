@@ -437,15 +437,14 @@ fn tokenize_string<'a>(ctx: &mut LexerContext<'a>) -> Result<Token, OryxError> {
 	let i = ctx.pos_b;
 
 	loop {
-		match ctx.next() {
-			Some(c) if c == '"' => break,
-			Some(_) => {},
-			None => {
-				return Err(OryxError::new(
-					(i, ctx.pos_a),
-					"unterminated string literal",
-				));
-			},
+		let Some(c) = ctx.next() else {
+			return Err(OryxError::new(
+				(i, ctx.pos_a),
+				"unterminated string literal",
+			));
+		};
+		if c == '"' {
+			break;
 		}
 	}
 	return Ok(Token {
