@@ -22,6 +22,7 @@ pub struct Flags {
 	pub debug_parser: bool,
 	pub help:         bool,
 	pub threads:      usize,
+    pub error_style:  errors::ErrorStyle,
 }
 
 impl Flags {
@@ -39,15 +40,12 @@ impl Flags {
 				Short('l') | Long("debug-lexer") => flags.debug_lexer = true,
 				Short('p') | Long("debug-parser") => flags.debug_parser = true,
 				Short('s') | Long("error-style") => {
-					/* TODO: Check for error (user could pass the flag twice) */
 					/* TODO: Don’t unwrap */
-					let _ = errors::ERROR_STYLE.set(
-						match parser.value()?.to_str().unwrap() {
-							"oneline" => errors::ErrorStyle::OneLine,
-							"standard" => errors::ErrorStyle::Standard,
-							_ => Err("invalid value for -s/--error-style")?,
-						},
-					);
+					flags.error_style = match parser.value()?.to_str().unwrap() {
+						"oneline" => errors::ErrorStyle::OneLine,
+						"standard" => errors::ErrorStyle::Standard,
+						s => Err(format!("{s}: invalid value for -s/--error-style"))?,
+					};
 				},
 				Short('t') | Long("threads") => {
 					flags.threads = parser.value()?.parse()?;
@@ -99,5 +97,6 @@ fn main() {
 		process::exit(0);
 	}
 
+	let _ = errors::ERROR_STYLE.set(flags.error_style);
 	compiler::start(rest, flags);
 }
