@@ -25,6 +25,7 @@ use crossbeam_deque::{
 	Stealer,
 	Worker,
 };
+use dashmap::DashMap;
 use soa_rs::Soa;
 
 use crate::errors::OryxError;
@@ -44,6 +45,7 @@ pub struct FileData {
 	pub tokens:     OnceLock<Soa<Token>>,
 	pub ast:        OnceLock<Soa<AstNode>>,
 	pub extra_data: OnceLock<Vec<u32>>,
+	pub scopes:     Vec<DashMap<SymbolId, SymbolVal>>,
 }
 
 impl FileData {
@@ -65,6 +67,7 @@ impl FileData {
 			tokens: OnceLock::new(),
 			ast: OnceLock::new(),
 			extra_data: OnceLock::new(),
+			scopes: Vec::new(),
 		})
 	}
 }
@@ -82,7 +85,8 @@ pub enum Job {
 	ResolveDef {
 		file:  FileId,
 		fdata: Arc<FileData>,
-		node:  NodeId,
+		scope: ScopeId,
+		node:  u32,
 	},
 }
 
@@ -171,8 +175,8 @@ where
 		handles.iter().map(|h| h.thread().clone()).collect();
 	let _ = state.worker_threads.set(worker_threads);
 
-	// if work completes before we get here, wake them so they can observe the
-	// termination condition and exit.
+	// if work completes before we get here, wake them so they can observe
+	// the termination condition and exit.
 	state.wake_all();
 
 	for h in handles {
@@ -195,7 +199,8 @@ fn worker_loop(
 		}
 
 		let Some(job) = find_task(&queue, &state.globalq, &stealers) else {
-			// no work available; check termination condition before parking to avoid missed wakeups
+			// no work available; check termination condition before parking to
+			// avoid missed wakeups
 			if state.njobs.load(Ordering::Acquire) == 0 {
 				break;
 			}
@@ -245,15 +250,25 @@ fn worker_loop(
 				let SubNodes(i, nstmts) = ast.sub()[ast.len() - 1];
 
 				for j in 0..nstmts {
-					let node = NodeId(extra_data[(i + j) as usize]);
+					let node = extra_data[(i + j) as usize];
 					let fdata = fdata.clone();
 					state.push_job(
 						&queue,
-						Job::ResolveDef { file, fdata, node },
+						Job::ResolveDef {
+							file,
+							fdata,
+							node,
+							scope: ScopeId::GLOBAL,
+						},
 					);
 				}
 			},
-			Job::ResolveDef { file, fdata, node } => {
+			Job::ResolveDef {
+				file,
+				fdata,
+				scope,
+				node,
+			} => {
 				eprintln!("Resolving def at node index {node:?}");
 			},
 		}
@@ -263,7 +278,8 @@ fn worker_loop(
 			// condition and exit.
 			state.wake_all();
 
-			// break here to avoid unnecessary steal attempts after work is done.
+			// break here to avoid unnecessary steal attempts after work is
+			// done.
 			break;
 		}
 	}

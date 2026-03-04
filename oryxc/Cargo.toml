@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-crossbeam-deque = "0.8.6"
-# icu = { version = "2.1.1", features = ["compiled_data"] }
 clap = { version = "4", features = ["derive"] }
+crossbeam-deque = "0.8.6"
+dashmap = "6.1.0"
 # num-rational = "0.4.2"
 phf = { version = "0.13.1", features = ["macros"] }
 soa-rs = "0.9.1"
+unicode-normalization = "0.1.25"
 unicode-width = "0.2.2"
