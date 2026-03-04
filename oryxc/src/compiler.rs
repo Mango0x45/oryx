@@ -171,6 +171,10 @@ where
 		handles.iter().map(|h| h.thread().clone()).collect();
 	let _ = state.worker_threads.set(worker_threads);
 
+	// if work completes before we get here, wake them so they can observe the
+	// termination condition and exit.
+	state.wake_all();
+
 	for h in handles {
 		if let Err(e) = h.join() {
 			std::panic::resume_unwind(e)
