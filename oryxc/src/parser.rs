@@ -890,14 +890,14 @@ impl<'a> Parser<'a> {
 						};
 						let nexprs = p.scratch.len() - exprbeg;
 						let extra_data_beg = p.extra_data.len();
-						p.extra_data.push(nexprs);
+						p.extra_data.push(nexprs as u32);
 						for x in &p.scratch[exprbeg..] {
 							p.extra_data.push(*x);
 						}
 						return Ok(p.new_node(AstNode {
 							kind: AstType::FunCall,
 							tok,
-							sub: SubNodes(lhs, extra_data_beg),
+							sub: SubNodes(lhs, extra_data_beg as u32),
 						}));
 					})?
 				},
