@@ -271,7 +271,7 @@ fn find_task(
 	None
 }
 
-/// Print all errors to stderr using the file's name and source buffer.
+/// Print all errors to stderr using the file’s name and source buffer.
 fn emit_errors<T>(fdata: &FileData, errors: T)
 where
 	T: IntoIterator<Item = OryxError>,
