@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+boxcar = "0.2.14"
 clap = { version = "4", features = ["derive"] }
 crossbeam-deque = "0.8.6"
 dashmap = "6.1.0"

@@ -3,6 +3,7 @@ use std::hash::{
 	Hasher,
 };
 
+use boxcar;
 use dashmap::DashMap;
 use unicode_normalization::{
 	self,
@@ -14,7 +15,7 @@ use crate::prelude::*;
 
 pub struct Interner<'a> {
 	map:   DashMap<UniStr<'a>, SymbolId>,
-	store: Vec<&'a str>,
+	store: boxcar::Vec<&'a str>,
 }
 
 #[derive(Debug, Eq)]
@@ -63,7 +64,7 @@ impl<'a> Interner<'a> {
 	pub fn new() -> Self {
 		return Interner {
 			map:   DashMap::new(),
-			store: Vec::new(),
+			store: boxcar::Vec::with_capacity(1024),
 		};
 	}
 
@@ -75,9 +76,8 @@ impl<'a> Interner<'a> {
 		if let Some(key) = self.map.get(&UniStr(value)) {
 			return *key;
 		}
-		let key = SymbolId(self.store.len() as u32);
+		let key = SymbolId(self.store.push(value) as u32);
 		self.map.insert(UniStr(value), key);
-		self.store.push(value);
 		return key;
 	}
 }
