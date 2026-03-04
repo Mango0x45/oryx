@@ -26,6 +26,7 @@ const MAX_PREC: i64 = 6;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AstType {
 	Assign,         /* (extra-data-lhs, extra-data-rhs) */
+	BinaryOperator, /* (lhs, rhs) */
 	Block,          /* (extra-data, extra-data-len) */
 	Dereference,    /* (lhs, _) */
 	Empty,          /* (_, _) */
@@ -37,9 +38,10 @@ pub enum AstType {
 	Number,         /* (_, _) */
 	Pointer,        /* (rhs, _) */
 	Return,         /* (extra-data, extra-data-len) */
+    /* TODO: Construct this thing */
+	Root,           /* (extra-data, extra-data-len) */
 	String,         /* (_, _) */
 	UnaryOperator,  /* (rhs, _) */
-	BinaryOperator, /* (lhs, rhs) */
 }
 
 #[derive(Clone, Copy)]
@@ -190,7 +192,10 @@ impl<'a> Parser<'a> {
 				(node, self.node_span_1(expr).1)
 			},
 			AstType::Pointer => (node, self.node_span_1(_0).1),
-			AstType::Block | AstType::FunCall | AstType::Return => {
+			AstType::Block
+			| AstType::FunCall
+			| AstType::Return
+			| AstType::Root => {
 				if _1 == 0 {
 					(node, node)
 				} else {
