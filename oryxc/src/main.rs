@@ -7,101 +7,60 @@ mod parser;
 mod size;
 mod unicode;
 
-use std::borrow::Cow;
 use std::ffi::OsString;
-use std::{
-	env,
-	process,
-	thread,
-};
+use std::thread;
 
-use lexopt;
+use clap::Parser;
 
 #[derive(Clone, Copy, Default)]
 pub struct Flags {
 	pub debug_lexer:  bool,
 	pub debug_parser: bool,
-	pub help:         bool,
 	pub threads:      usize,
 	pub error_style:  errors::ErrorStyle,
 }
 
-impl Flags {
-	fn parse() -> Result<(Flags, Vec<OsString>), lexopt::Error> {
-		use lexopt::prelude::*;
+#[derive(Parser)]
+struct Args {
+	#[arg(short = 'l', long)]
+	debug_lexer: bool,
 
-		let mut rest = Vec::with_capacity(env::args().len());
-		let mut flags = Flags::default();
-		let mut parser = lexopt::Parser::from_env();
-		parser.set_short_equals(false);
+	#[arg(short = 'p', long)]
+	debug_parser: bool,
 
-		while let Some(arg) = parser.next()? {
-			match arg {
-				Short('h') | Long("help") => flags.help = true,
-				Short('l') | Long("debug-lexer") => flags.debug_lexer = true,
-				Short('p') | Long("debug-parser") => flags.debug_parser = true,
-				Short('s') | Long("error-style") => {
-					flags.error_style = match parser.value()?.to_string_lossy()
-					{
-						Cow::Borrowed("oneline") => errors::ErrorStyle::OneLine,
-						Cow::Borrowed("standard") => {
-							errors::ErrorStyle::Standard
-						},
-						s => Err(format!(
-							"{s}: invalid value for -s/--error-style"
-						))?,
-					};
-				},
-				Short('t') | Long("threads") => {
-					flags.threads = parser.value()?.parse()?;
-					if flags.threads == 0 {
-						err!("thread count must be greater than 0");
-					}
-				},
-				Value(v) => rest.push(v),
-				_ => return Err(arg.unexpected()),
-			}
-		}
+	#[arg(short = 's', long, default_value = "standard")]
+	error_style: errors::ErrorStyle,
 
-		if flags.threads == 0 {
-			flags.threads = thread::available_parallelism().map_or_else(
-				|e| {
-					warn!(e, "failed to get thread count");
-					1
-				},
-				|x| x.get(),
-			);
-		}
+	#[arg(short = 't', long)]
+	threads: Option<usize>,
 
-		return Ok((flags, rest));
-	}
-}
-
-fn usage() {
-	eprintln!(
-		concat!(
-			"Usage: {0} [-lp] [-s oneline|standard] [-t threads]\n",
-			"       {0} -h",
-		),
-		errors::progname().display()
-	);
+	files: Vec<OsString>,
 }
 
 fn main() {
-	let (flags, rest) = match Flags::parse() {
-		Ok(v) => v,
-		Err(e) => {
-			warn!(e);
-			usage();
-			process::exit(1);
-		},
-	};
+	let args = Args::parse();
 
-	if flags.help {
-		usage();
-		process::exit(0);
+	let threads = args.threads.unwrap_or_else(|| {
+		thread::available_parallelism().map_or_else(
+			|e| {
+				warn!(e, "failed to get thread count");
+				1
+			},
+			|x| x.get(),
+		)
+	});
+
+	if threads == 0 {
+		err!("thread count must be greater than 0");
 	}
 
+	let flags = Flags {
+		debug_lexer:  args.debug_lexer,
+		debug_parser: args.debug_parser,
+		threads,
+		error_style:  args.error_style,
+	};
+
 	let _ = errors::ERROR_STYLE.set(flags.error_style);
-	compiler::start(rest, flags);
+	compiler::start(args.files, flags);
 }

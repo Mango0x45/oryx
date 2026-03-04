@@ -25,8 +25,9 @@ use crate::unicode;
 const TAB_AS_SPACES: &'static str = "    ";
 const TABSIZE: usize = TAB_AS_SPACES.len();
 
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Eq, PartialEq, clap::ValueEnum)]
 pub enum ErrorStyle {
+	#[value(name = "oneline")]
 	OneLine,
 	#[default]
 	Standard,

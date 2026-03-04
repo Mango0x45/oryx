@@ -825,7 +825,7 @@ impl<'a> Parser<'a> {
 							p.extra_data.push(*x);
 						}
 						/* FIXME: Missing LHS, and doesn’t conform to the
-                         * description at the definition of AstType */
+						 * description at the definition of AstType */
 						return Ok(p.new_node(AstNode {
 							kind: AstType::FunCall,
 							tok,
