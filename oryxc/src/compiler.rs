@@ -87,13 +87,17 @@ pub struct CompilerState {
 }
 
 impl CompilerState {
-	fn push_job(&self, queue: &Worker<Job>, job: Job) {
-		queue.push(job);
+	fn wake_all(&self) {
 		if let Some(threads) = self.worker_threads.get() {
 			for t in threads.iter() {
 				t.unpark();
 			}
 		}
+	}
+
+	fn push_job(&self, queue: &Worker<Job>, job: Job) {
+		queue.push(job);
+		self.wake_all();
 	}
 }
 
@@ -233,11 +237,7 @@ fn worker_loop(
 		if state.njobs.fetch_sub(1, Ordering::Release) == 1 {
 			// njobs is 0; wake all threads so they can observe the termination
 			// condition and exit.
-			if let Some(threads) = state.worker_threads.get() {
-				for t in threads.iter() {
-					t.unpark();
-				}
-			}
+			state.wake_all();
 		}
 	}
 }
