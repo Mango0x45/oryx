@@ -195,6 +195,10 @@ fn worker_loop(
 		}
 
 		let Some(job) = find_task(&queue, &state.globalq, &stealers) else {
+			// no work available; check termination condition before parking to avoid missed wakeups
+			if state.njobs.load(Ordering::Acquire) == 0 {
+				break;
+			}
 			thread::park();
 			continue;
 		};
@@ -258,6 +262,9 @@ fn worker_loop(
 			// njobs is 0; wake all threads so they can observe the termination
 			// condition and exit.
 			state.wake_all();
+
+			// break here to avoid unnecessary steal attempts after work is done.
+			break;
 		}
 	}
 }
