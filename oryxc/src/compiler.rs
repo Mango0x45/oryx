@@ -104,7 +104,8 @@ impl CompilerState {
 	}
 }
 
-/// Initialize compiler state and drive all source files through the pipeline.
+/// Initialize compiler state and drive all source files through the
+/// pipeline.
 pub fn start<T>(paths: T, flags: Flags)
 where
 	T: IntoIterator<Item = OsString>,
@@ -238,7 +239,8 @@ fn worker_loop(
 	}
 }
 
-/// Get next available job or steal from the global queue or peers if local queue is empty.
+/// Get next available job or steal from the global queue or peers if
+/// local queue is empty.
 fn find_task(
 	localq: &Worker<Job>,
 	globalq: &Injector<Job>,
