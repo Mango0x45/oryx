@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::io::{
 	self,
+	Read,
 	Write,
 };
 use std::iter::once;
@@ -24,7 +25,6 @@ use crossbeam_deque::{
 	Stealer,
 	Worker,
 };
-use dashmap::DashMap;
 use soa_rs::Soa;
 
 use crate::errors::OryxError;
@@ -52,9 +52,12 @@ impl FileData {
 	fn new(name: OsString) -> Result<Self, io::Error> {
 		const PAD: [u8; 64] = [0; 64]; /* 512 bits */
 
+		// Pre-allocate to avoid reallocation when appending padding.
 		// Append extra data to the end so that we can safely read past
-		// instead of branching on length
-		let mut buffer = fs::read_to_string(&name)?;
+		// instead of branching on length.
+		let size = fs::metadata(&name)?.len() as usize;
+		let mut buffer = String::with_capacity(size + PAD.len());
+		fs::File::open(&name)?.read_to_string(&mut buffer)?;
 		buffer.push_str(unsafe { std::str::from_utf8_unchecked(&PAD) });
 
 		Ok(Self {
@@ -75,31 +78,56 @@ pub enum Job {
 }
 
 pub struct CompilerState {
-	pub files:   DashMap<FileId, Arc<FileData>>,
-	pub globalq: Injector<Job>,
-	pub njobs:   AtomicUsize,
-	pub flags:   Flags,
+	#[allow(dead_code)]
+	pub files:          Vec<Arc<FileData>>,
+	pub globalq:        Injector<Job>,
+	pub njobs:          AtomicUsize,
+	pub flags:          Flags,
+	pub worker_threads: OnceLock<Box<[thread::Thread]>>,
+}
+
+impl CompilerState {
+	fn push_job(&self, queue: &Worker<Job>, job: Job) {
+		queue.push(job);
+		if let Some(threads) = self.worker_threads.get() {
+			for t in threads.iter() {
+				t.unpark();
+			}
+		}
+	}
 }
 
 pub fn start<T>(paths: T, flags: Flags)
 where
 	T: IntoIterator<Item = OsString>,
 {
-	let state = Arc::new(CompilerState {
-		files: DashMap::new(),
-		globalq: Injector::new(),
-		njobs: AtomicUsize::new(0),
-		flags,
-	});
+	let mut files = Vec::new();
+	let mut initial_jobs = Vec::new();
+
 	for (i, path) in paths.into_iter().enumerate() {
 		let id = FileId(i);
+
+		// take ownership of the OsString so we can store it in FileData without
+		// cloning
+		let display = path.to_string_lossy().into_owned();
 		let fdata = Arc::new(
-			FileData::new(path.clone().into())
-				.unwrap_or_else(|e| err!(e, "{}", path.display())),
+			FileData::new(path).unwrap_or_else(|e| err!(e, "{}", display)),
 		);
-		state.files.insert(id, Arc::clone(&fdata));
-		state.njobs.fetch_add(1, Ordering::Relaxed);
-		state.globalq.push(Job::Lex { file: id, fdata });
+		files.push(Arc::clone(&fdata));
+		initial_jobs.push(Job::Lex { file: id, fdata });
+	}
+
+	let njobs = initial_jobs.len();
+	let state = Arc::new(CompilerState {
+		files,
+		globalq: Injector::new(),
+		njobs: AtomicUsize::new(njobs),
+		flags,
+		worker_threads: OnceLock::new(),
+	});
+
+	for job in initial_jobs {
+		state.globalq.push(job);
 	}
 
 	let mut workers = Vec::with_capacity(flags.threads);
@@ -110,19 +138,23 @@ where
 		workers.push(w);
 	}
 
-	let mut threads = Vec::with_capacity(flags.threads);
 	let stealer_view: Arc<[_]> = Arc::from(stealers);
+	let handles: Vec<_> = workers
+		.into_iter()
+		.enumerate()
+		.map(|(id, w)| {
+			let stealer_view = Arc::clone(&stealer_view);
+			let state = Arc::clone(&state);
+			thread::spawn(move || worker_loop(id, state, w, stealer_view))
+		})
+		.collect();
 
-	for (id, w) in workers.into_iter().enumerate() {
-		let stealer_view = Arc::clone(&stealer_view);
-		let state = Arc::clone(&state);
-		threads.push(thread::spawn(move || {
-			worker_loop(id, state, w, stealer_view)
-		}));
-	}
+	let worker_threads: Box<[thread::Thread]> =
+		handles.iter().map(|h| h.thread().clone()).collect();
+	let _ = state.worker_threads.set(worker_threads);
 
-	for t in threads {
-		if let Err(e) = t.join() {
+	for h in handles {
+		if let Err(e) = h.join() {
 			std::panic::resume_unwind(e)
 		}
 	}
@@ -149,7 +181,7 @@ fn worker_loop(
 		}
 
 		let Some(job) = find_task(&queue, &state.globalq, &stealers) else {
-			thread::yield_now();
+			thread::park();
 			continue;
 		};
 
@@ -172,7 +204,7 @@ fn worker_loop(
 
 				fdata.tokens.set(tokens).unwrap();
 				state.njobs.fetch_add(1, Ordering::Relaxed);
-				queue.push(Job::Parse { file, fdata });
+				state.push_job(&queue, Job::Parse { file, fdata });
 			},
 			Job::Parse { file, fdata } => {
 				let (ast, extra_data) =
@@ -194,15 +226,22 @@ fn worker_loop(
 				fdata.ast.set(ast).unwrap();
 				fdata.extra_data.set(extra_data).unwrap();
 				state.njobs.fetch_add(1, Ordering::Relaxed);
-				queue.push(Job::ResolveSymbols { file, fdata });
+				state.push_job(&queue, Job::ResolveSymbols { file, fdata });
 			},
 			Job::ResolveSymbols { file: _, fdata: _ } => {
 				err!("not implemented");
-				// unimplemented!()
 			},
 		}
 
-		state.njobs.fetch_sub(1, Ordering::Release);
+		if state.njobs.fetch_sub(1, Ordering::Release) == 1 {
+			// njobs is 0; wake all threads so they can observe the termination
+			// condition and exit.
+			if let Some(threads) = state.worker_threads.get() {
+				for t in threads.iter() {
+					t.unpark();
+				}
+			}
+		}
 	}
 }
 
