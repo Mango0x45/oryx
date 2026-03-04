@@ -4,6 +4,7 @@ mod compiler;
 mod errors;
 mod lexer;
 mod parser;
+mod prelude;
 mod size;
 mod unicode;
 

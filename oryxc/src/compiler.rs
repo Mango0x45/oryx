@@ -30,15 +30,13 @@ use soa_rs::Soa;
 use crate::errors::OryxError;
 use crate::lexer::Token;
 use crate::parser::AstNode;
+use crate::prelude::*;
 use crate::{
 	Flags,
 	err,
 	lexer,
 	parser,
 };
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct FileId(usize);
 
 pub struct FileData {
 	pub name:       OsString,
