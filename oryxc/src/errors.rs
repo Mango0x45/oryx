@@ -46,9 +46,9 @@ pub fn progname() -> &'static OsString {
 #[macro_export]
 macro_rules! warn {
 	($err:expr, $fmt:literal, $($arg:tt)*) => {{
-        use crate::errors::progname;
+		use crate::errors::progname;
 		let _ = eprintln!("{}: {}: {}", progname().display(),
-            format_args!($fmt, $($arg)*), $err);
+			format_args!($fmt, $($arg)*), $err);
 	}};
 
 	($err:expr, $fmt:literal) => {{
@@ -56,7 +56,7 @@ macro_rules! warn {
 	}};
 
 	($err:expr) => {{
-        use crate::errors::progname;
+		use crate::errors::progname;
 		let _ = eprintln!("{}: {}", progname().display(), $err);
 	}};
 }
@@ -64,8 +64,8 @@ macro_rules! warn {
 #[macro_export]
 macro_rules! err {
 	($err:expr, $fmt:literal, $($arg:tt)*) => {{
-        use crate::warn;
-        warn!($err, $fmt, $($arg)*);
+		use crate::warn;
+		warn!($err, $fmt, $($arg)*);
 		std::process::exit(1);
 	}};
 
@@ -74,8 +74,8 @@ macro_rules! err {
 	}};
 
 	($err:expr) => {{
-        use crate::warn;
-        warn!($err);
+		use crate::warn;
+		warn!($err);
 		std::process::exit(1);
 	}};
 }

@@ -130,7 +130,7 @@ where
 
 macro_rules! fdata_read {
 	($state:expr, $file:expr, $($field:ident),+ $(,)?) => {
-        #[allow(unused_parens)]
+		#[allow(unused_parens)]
 		let ($($field),+) = {
 			let fdata = $state.files.get(&$file).unwrap();
 			($(fdata.$field.clone()),+)
