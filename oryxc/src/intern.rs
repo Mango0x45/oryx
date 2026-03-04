@@ -10,7 +10,6 @@ use unicode_normalization::{
 	UnicodeNormalization,
 };
 
-// use icu::normalizer::DecomposingNormalizer;
 use crate::prelude::*;
 
 pub struct Interner<'a> {
