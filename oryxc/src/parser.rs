@@ -263,38 +263,40 @@ impl<'a> Parser<'a> {
 					u32::MAX /* Dummy value */
 				},
 			},
-			TokenType::KeywordReturn => 'label: {
+			TokenType::KeywordReturn => {
 				let main_tok = self.cursor;
 				self.next(); /* Consume ‘return’ */
-				let exprbeg = match self.parse_expr_list() {
-					Ok(i) => i,
-					Err(e) => {
-						self.new_error(e);
+				self.scratch_guard(|p| {
+					let exprbeg = match p.parse_expr_list() {
+						Ok(i) => i,
+						Err(e) => {
+							p.new_error(e);
+							syncp = true;
+							return u32::MAX;
+						},
+					};
+					if p.get_n_move() != TokenType::Semicolon {
+						p.new_error(OryxError::new(
+							(
+								p.get_view_at(main_tok).0,
+								p.get_view_at(p.cursor - 1).1,
+							),
+							"expected semicolon after return statement",
+						));
 						syncp = true;
-						break 'label u32::MAX;
-					},
-				};
-				if self.get_n_move() != TokenType::Semicolon {
-					self.new_error(OryxError::new(
-						(
-							self.get_view_at(main_tok).0,
-							self.get_view_at(self.cursor - 1).1,
-						),
-						"expected semicolon after return statement",
-					));
-					syncp = true;
-					break 'label u32::MAX;
-				}
+						return u32::MAX;
+					}
 
-				let nexprs = self.scratch.len() - exprbeg;
-				let extra_data_beg = self.extra_data.len();
-				for x in self.scratch.drain(exprbeg..) {
-					self.extra_data.push(x);
-				}
-				self.new_node(AstNode {
-					kind: AstType::Return,
-					tok:  main_tok,
-					sub:  SubNodes(extra_data_beg as u32, nexprs as u32),
+					let nexprs = p.scratch.len() - exprbeg;
+					let extra_data_beg = p.extra_data.len();
+					for x in &p.scratch[exprbeg..] {
+						p.extra_data.push(*x);
+					}
+					return p.new_node(AstNode {
+						kind: AstType::Return,
+						tok:  main_tok,
+						sub:  SubNodes(extra_data_beg as u32, nexprs as u32),
+					});
 				})
 			},
 			t if t.exprp() => {
@@ -552,24 +554,26 @@ impl<'a> Parser<'a> {
 			));
 		}
 
-		let scratch_beg = self.scratch.len();
-		while self.get() != TokenType::BraceR {
-			let k = self.parse_stmt();
-			self.scratch.push(k);
-		}
-		self.next(); /* Consume ‘}’ */
+		return self.scratch_guard(|p| {
+			let scratch_beg = p.scratch.len();
+			while p.get() != TokenType::BraceR {
+				let k = p.parse_stmt();
+				p.scratch.push(k);
+			}
+			p.next(); /* Consume ‘}’ */
 
-		let extra_data_beg = self.extra_data.len();
-		let nstmts = (self.scratch.len() - scratch_beg) as u32;
+			let extra_data_beg = p.extra_data.len();
+			let nstmts = (p.scratch.len() - scratch_beg) as u32;
 
-		for x in self.scratch.drain(scratch_beg..) {
-			self.extra_data.push(x);
-		}
-		return Ok(self.new_node(AstNode {
-			kind: AstType::Block,
-			tok:  main_tok,
-			sub:  SubNodes(extra_data_beg as u32, nstmts),
-		}));
+			for x in &p.scratch[scratch_beg..] {
+				p.extra_data.push(*x);
+			}
+			return Ok(p.new_node(AstNode {
+				kind: AstType::Block,
+				tok:  main_tok,
+				sub:  SubNodes(extra_data_beg as u32, nstmts),
+			}));
+		});
 	}
 
 	fn parse_decl_list(&mut self) -> Result<usize, OryxError> {
@@ -793,33 +797,36 @@ impl<'a> Parser<'a> {
 				TokenType::ParenL => {
 					let tok = self.cursor;
 					self.next();
-					let exprbeg = self.parse_expr_list()?;
-					match self.get_n_move() {
-						TokenType::ParenR => {},
-						TokenType::Comma => {
-							return Err(OryxError::new(
-								self.get_view_at(self.cursor - 1),
-								"empty function parameter",
-							));
-						},
-						_ => {
-							return Err(OryxError::new(
-								/* TODO: Highlight the entire argument list */
-								self.get_view_at(tok),
-								"function call missing closing parenthesis",
-							));
-						},
-					};
-					let nexprs = self.scratch.len() - exprbeg;
-					let extra_data_beg = self.extra_data.len();
-					for x in self.scratch.drain(exprbeg..) {
-						self.extra_data.push(x);
-					}
-					self.new_node(AstNode {
-						kind: AstType::FunCall,
-						tok,
-						sub: SubNodes(extra_data_beg as u32, nexprs as u32),
-					})
+					self.scratch_guard(|p| {
+						let exprbeg = p.parse_expr_list()?;
+						match p.get_n_move() {
+							TokenType::ParenR => {},
+							TokenType::Comma => {
+								return Err(OryxError::new(
+									p.get_view_at(p.cursor - 1),
+									"empty function parameter",
+								));
+							},
+							_ => {
+								return Err(OryxError::new(
+									/* TODO: Highlight the entire argument
+									 * list */
+									p.get_view_at(tok),
+									"function call missing closing parenthesis",
+								));
+							},
+						};
+						let nexprs = p.scratch.len() - exprbeg;
+						let extra_data_beg = p.extra_data.len();
+						for x in &p.scratch[exprbeg..] {
+							p.extra_data.push(*x);
+						}
+						return Ok(p.new_node(AstNode {
+							kind: AstType::FunCall,
+							tok,
+							sub: SubNodes(extra_data_beg as u32, nexprs as u32),
+						}));
+					})?
 				},
 
 				_ => break,
