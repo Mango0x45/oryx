@@ -22,7 +22,7 @@ pub struct Flags {
 	pub debug_parser: bool,
 	pub help:         bool,
 	pub threads:      usize,
-    pub error_style:  errors::ErrorStyle,
+	pub error_style:  errors::ErrorStyle,
 }
 
 impl Flags {

@@ -38,10 +38,10 @@ pub enum AstType {
 	Number,         /* (_, _) */
 	Pointer,        /* (rhs, _) */
 	Return,         /* (extra-data, extra-data-len) */
-    /* TODO: Construct this thing */
-	Root,           /* (extra-data, extra-data-len) */
-	String,         /* (_, _) */
-	UnaryOperator,  /* (rhs, _) */
+	/* TODO: Construct this thing */
+	Root,          /* (extra-data, extra-data-len) */
+	String,        /* (_, _) */
+	UnaryOperator, /* (rhs, _) */
 }
 
 #[derive(Clone, Copy)]
