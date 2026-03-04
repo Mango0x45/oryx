@@ -10,7 +10,11 @@ mod unicode;
 use std::ffi::OsString;
 use std::thread;
 
-use clap::Parser;
+use clap::{
+	CommandFactory,
+	FromArgMatches,
+	Parser,
+};
 
 #[derive(Clone, Copy, Default)]
 pub struct Flags {
@@ -38,7 +42,10 @@ struct Args {
 }
 
 fn main() {
-	let args = Args::parse();
+	let args = Args::from_arg_matches(
+		&Args::command().override_usage(usage()).get_matches(),
+	)
+	.unwrap_or_else(|e| e.exit());
 
 	let threads = args.threads.unwrap_or_else(|| {
 		thread::available_parallelism().map_or_else(
@@ -63,4 +70,14 @@ fn main() {
 
 	let _ = errors::ERROR_STYLE.set(flags.error_style);
 	compiler::start(args.files, flags);
+}
+
+fn usage() -> String {
+	format!(
+		concat!(
+			"Usage: {0} [-lp] [-s oneline|standard] [-t threads]\n",
+			"       {0} -h",
+		),
+		errors::progname().display()
+	)
 }

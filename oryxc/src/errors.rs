@@ -12,7 +12,10 @@ use std::fmt::{
 };
 use std::io::Write;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{
+	LazyLock,
+	OnceLock,
+};
 use std::{
 	env,
 	io,
@@ -36,12 +39,12 @@ pub enum ErrorStyle {
 pub static ERROR_STYLE: OnceLock<ErrorStyle> = OnceLock::new();
 
 pub fn progname() -> &'static OsString {
-	static ARGV0: OnceLock<OsString> = OnceLock::new();
-	return ARGV0.get_or_init(|| {
+	static ARGV0: LazyLock<OsString> = LazyLock::new(|| {
 		let default = OsStr::new("oryxc");
 		let s = env::args_os().next().unwrap_or(default.into());
-		return Path::new(&s).file_name().unwrap_or(default).to_os_string();
+		Path::new(&s).file_name().unwrap_or(default).to_os_string()
 	});
+	&ARGV0
 }
 
 #[macro_export]

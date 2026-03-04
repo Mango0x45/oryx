@@ -187,13 +187,11 @@ fn worker_loop(
 
 		match job {
 			Job::Lex { file, fdata } => {
-				let tokens = match lexer::tokenize(&fdata.buffer) {
-					Ok(xs) => xs,
-					Err(e) => {
+				let tokens =
+					lexer::tokenize(&fdata.buffer).unwrap_or_else(|e| {
 						emit_errors(&fdata, once(e));
 						process::exit(1)
-					},
-				};
+					});
 
 				if state.flags.debug_lexer {
 					let mut handle = io::stderr().lock();
@@ -207,14 +205,13 @@ fn worker_loop(
 				state.push_job(&queue, Job::Parse { file, fdata });
 			},
 			Job::Parse { file, fdata } => {
-				let (ast, extra_data) =
-					match parser::parse(fdata.tokens.get().unwrap()) {
-						Ok(xs) => xs,
-						Err(errs) => {
-							emit_errors(&fdata, errs);
-							process::exit(1)
-						},
-					};
+				let (ast, extra_data) = parser::parse(
+					fdata.tokens.get().unwrap(),
+				)
+				.unwrap_or_else(|errs| {
+					emit_errors(&fdata, errs);
+					process::exit(1)
+				});
 
 				if state.flags.debug_parser {
 					let mut handle = io::stderr().lock();
