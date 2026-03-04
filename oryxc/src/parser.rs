@@ -824,6 +824,8 @@ impl<'a> Parser<'a> {
 						for x in &p.scratch[exprbeg..] {
 							p.extra_data.push(*x);
 						}
+						/* FIXME: Missing LHS, and doesn’t conform to the
+                         * description at the definition of AstType */
 						return Ok(p.new_node(AstNode {
 							kind: AstType::FunCall,
 							tok,
