@@ -890,15 +890,14 @@ impl<'a> Parser<'a> {
 						};
 						let nexprs = p.scratch.len() - exprbeg;
 						let extra_data_beg = p.extra_data.len();
+						p.extra_data.push(nexprs);
 						for x in &p.scratch[exprbeg..] {
 							p.extra_data.push(*x);
 						}
-						/* FIXME: Missing LHS, and doesn’t conform to the
-						 * description at the definition of AstType */
 						return Ok(p.new_node(AstNode {
 							kind: AstType::FunCall,
 							tok,
-							sub: SubNodes(extra_data_beg as u32, nexprs as u32),
+							sub: SubNodes(lhs, extra_data_beg),
 						}));
 					})?
 				},
