@@ -305,7 +305,7 @@ impl<'a> Parser<'a> {
 			t if t.exprp() => {
 				/* Här kan vi antigen ha ett uttryck (t.ex. ‘foo()’)
 				 * eller en uttyrckslista som används i en tilldelning
-				 * (t.ex. ‘x, y = 69 420’) */
+				 * (t.ex. ‘x, y = 69, 420’) */
 
 				match self.scratch_guard(|p| {
 					let lhs = p.parse_expr_list()?;
