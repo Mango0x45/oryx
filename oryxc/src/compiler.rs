@@ -49,6 +49,7 @@ pub struct FileData {
 }
 
 impl FileData {
+	/// Read a source file from disk and create a new [`FileData`].
 	fn new(name: OsString) -> Result<Self, io::Error> {
 		const PAD: [u8; 64] = [0; 64]; /* 512 bits */
 
@@ -87,6 +88,7 @@ pub struct CompilerState {
 }
 
 impl CompilerState {
+	/// Unpark all worker threads.
 	fn wake_all(&self) {
 		if let Some(threads) = self.worker_threads.get() {
 			for t in threads.iter() {
@@ -95,12 +97,14 @@ impl CompilerState {
 		}
 	}
 
+	/// Push a job onto a worker's local queue and wake all threads.
 	fn push_job(&self, queue: &Worker<Job>, job: Job) {
 		queue.push(job);
 		self.wake_all();
 	}
 }
 
+/// Initialize compiler state and drive all source files through the pipeline.
 pub fn start<T>(paths: T, flags: Flags)
 where
 	T: IntoIterator<Item = OsString>,
@@ -164,15 +168,7 @@ where
 	}
 }
 
-fn emit_errors<T>(fdata: &FileData, errors: T)
-where
-	T: IntoIterator<Item = OryxError>,
-{
-	for e in errors {
-		e.report(&fdata.name, &fdata.buffer);
-	}
-}
-
+/// Steal and execute jobs until all work is complete.
 fn worker_loop(
 	_id: usize,
 	state: Arc<CompilerState>,
@@ -242,6 +238,7 @@ fn worker_loop(
 	}
 }
 
+/// Get next available job or steal from the global queue or peers if local queue is empty.
 fn find_task(
 	localq: &Worker<Job>,
 	globalq: &Injector<Job>,
@@ -270,4 +267,14 @@ fn find_task(
 	}
 
 	None
+}
+
+/// Print all errors to stderr using the file's name and source buffer.
+fn emit_errors<T>(fdata: &FileData, errors: T)
+where
+	T: IntoIterator<Item = OryxError>,
+{
+	for e in errors {
+		e.report(&fdata.name, &fdata.buffer);
+	}
 }
