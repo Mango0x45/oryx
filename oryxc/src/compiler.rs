@@ -68,8 +68,9 @@ impl FileData {
 }
 
 pub enum Job {
-	LexAndParse { file: FileId },
-	TypeCheck { file: FileId },
+	Lex { file: FileId },
+	Parse { file: FileId },
+	ResolveSymbols { file: FileId },
 }
 
 pub struct CompilerState {
@@ -96,8 +97,8 @@ where
 			Err(e) => err!(e, "{}", path.display()),
 		};
 		state.files.insert(id, data);
-		state.globalq.push(Job::LexAndParse { file: id });
 		state.njobs.fetch_add(1, Ordering::Relaxed);
+		state.globalq.push(Job::Lex { file: id });
 	}
 
 	let mut workers = Vec::with_capacity(flags.threads);
@@ -151,7 +152,7 @@ fn worker_loop(
 		let job = find_task(&queue, &state.globalq, &stealers);
 		if let Some(job) = job {
 			match job {
-				Job::LexAndParse { file } => {
+				Job::Lex { file } => {
 					let buffer = {
 						let fdata = state.files.get(&file).unwrap();
 						fdata.buffer.clone()
@@ -171,8 +172,23 @@ fn worker_loop(
 						}
 					}
 
-					let (ast, _extra_data) = match parser::parse(&tokens) {
-						Ok((ast, _extra_data)) => (ast, _extra_data),
+					{
+						let mut fdata = state.files.get_mut(&file).unwrap();
+						fdata.tokens = Arc::from(MaybeUninit::new(tokens));
+					}
+
+					state.njobs.fetch_add(1, Ordering::Relaxed);
+					queue.push(Job::Parse { file });
+				},
+				Job::Parse { file } => {
+					let tokens = {
+						let fdata = state.files.get(&file).unwrap();
+						fdata.tokens.clone()
+					};
+					let (ast, extra_data) = match parser::parse(
+						unsafe { tokens.assume_init() }.as_ref(),
+					) {
+						Ok(xs) => xs,
 						Err(errs) => {
 							emit_errors(state.clone(), file, errs);
 							process::exit(1);
@@ -186,11 +202,19 @@ fn worker_loop(
 						}
 					}
 
-					let mut fdata = state.files.get_mut(&file).unwrap();
-					fdata.tokens = Arc::from(MaybeUninit::new(tokens));
-					fdata.ast = Arc::from(MaybeUninit::new(ast));
+					{
+						let mut fdata = state.files.get_mut(&file).unwrap();
+						fdata.ast = Arc::from(MaybeUninit::new(ast));
+						fdata.extra_data =
+							Arc::from(MaybeUninit::new(extra_data));
+					}
+
+					state.njobs.fetch_add(1, Ordering::Relaxed);
+					queue.push(Job::ResolveSymbols { file });
 				},
-				_ => todo!(),
+				Job::ResolveSymbols { file } => {
+					err!("not implemented");
+				},
 			}
 
 			state.njobs.fetch_sub(1, Ordering::Relaxed);
