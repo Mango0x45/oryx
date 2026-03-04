@@ -71,9 +71,19 @@ impl FileData {
 
 #[allow(dead_code)]
 pub enum Job {
-	Lex { file: FileId, fdata: Arc<FileData> },
-	Parse { file: FileId, fdata: Arc<FileData> },
-	ResolveSymbols { file: FileId, fdata: Arc<FileData> },
+	Lex {
+		file:  FileId,
+		fdata: Arc<FileData>,
+	},
+	Parse {
+		file:  FileId,
+		fdata: Arc<FileData>,
+	},
+	ResolveDef {
+		file:  FileId,
+		fdata: Arc<FileData>,
+		node:  NodeId,
+	},
 }
 
 pub struct CompilerState {
@@ -97,6 +107,7 @@ impl CompilerState {
 
 	/// Push a job onto a worker's local queue and wake all threads.
 	fn push_job(&self, queue: &Worker<Job>, job: Job) {
+		self.njobs.fetch_add(1, Ordering::Relaxed);
 		queue.push(job);
 		self.wake_all();
 	}
@@ -200,7 +211,6 @@ fn worker_loop(
 				}
 
 				fdata.tokens.set(tokens).unwrap();
-				state.njobs.fetch_add(1, Ordering::Relaxed);
 				state.push_job(&queue, Job::Parse { file, fdata });
 			},
 			Job::Parse { file, fdata } => {
@@ -221,11 +231,22 @@ fn worker_loop(
 
 				fdata.ast.set(ast).unwrap();
 				fdata.extra_data.set(extra_data).unwrap();
-				state.njobs.fetch_add(1, Ordering::Relaxed);
-				state.push_job(&queue, Job::ResolveSymbols { file, fdata });
+
+				let ast = fdata.ast.get().unwrap();
+				let extra_data = fdata.extra_data.get().unwrap();
+				let SubNodes(i, nstmts) = ast.sub()[ast.len() - 1];
+
+				for j in 0..nstmts {
+					let node = NodeId(extra_data[(i + j) as usize]);
+					let fdata = fdata.clone();
+					state.push_job(
+						&queue,
+						Job::ResolveDef { file, fdata, node },
+					);
+				}
 			},
-			Job::ResolveSymbols { file: _, fdata: _ } => {
-				err!("not implemented");
+			Job::ResolveDef { file, fdata, node } => {
+				eprintln!("Resolving def at node index {node:?}");
 			},
 		}
 
