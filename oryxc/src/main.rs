@@ -55,10 +55,10 @@ fn main() {
 	}
 
 	let flags = Flags {
-		debug_lexer:  args.debug_lexer,
+		debug_lexer: args.debug_lexer,
 		debug_parser: args.debug_parser,
 		threads,
-		error_style:  args.error_style,
+		error_style: args.error_style,
 	};
 
 	let _ = errors::ERROR_STYLE.set(flags.error_style);

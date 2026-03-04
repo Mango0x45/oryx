@@ -3,20 +3,17 @@ use std::io::{
 	self,
 	Write,
 };
-use std::iter::{
-	self,
-	IntoIterator,
-};
-use std::mem::MaybeUninit;
-use std::sync::Arc;
+use std::iter::once;
 use std::sync::atomic::{
 	AtomicUsize,
 	Ordering,
 };
-use std::vec::Vec;
+use std::sync::{
+	Arc,
+	OnceLock,
+};
 use std::{
 	fs,
-	panic,
 	process,
 	thread,
 };
@@ -44,11 +41,11 @@ use crate::{
 pub struct FileId(usize);
 
 pub struct FileData {
-	name:       Arc<OsString>,
-	buffer:     Arc<String>,
-	tokens:     Arc<MaybeUninit<Soa<Token>>>,
-	ast:        Arc<MaybeUninit<Soa<AstNode>>>,
-	extra_data: Arc<MaybeUninit<Vec<u32>>>,
+	pub name:       OsString,
+	pub buffer:     String,
+	pub tokens:     OnceLock<Soa<Token>>,
+	pub ast:        OnceLock<Soa<AstNode>>,
+	pub extra_data: OnceLock<Vec<u32>>,
 }
 
 impl FileData {
@@ -58,26 +55,27 @@ impl FileData {
 		// Append extra data to the end so that we can safely read past
 		// instead of branching on length
 		let mut buffer = fs::read_to_string(&name)?;
-		buffer.push_str(unsafe { str::from_utf8_unchecked(&PAD) });
+		buffer.push_str(unsafe { std::str::from_utf8_unchecked(&PAD) });
 
-		return Ok(Self {
-			name:       name.into(),
-			buffer:     buffer.into(),
-			tokens:     Arc::new_uninit(),
-			ast:        Arc::new_uninit(),
-			extra_data: Arc::new_uninit(),
-		});
+		Ok(Self {
+			name,
+			buffer,
+			tokens: OnceLock::new(),
+			ast: OnceLock::new(),
+			extra_data: OnceLock::new(),
+		})
 	}
 }
 
+#[allow(dead_code)]
 pub enum Job {
-	Lex { file: FileId },
-	Parse { file: FileId },
-	ResolveSymbols { file: FileId },
+	Lex { file: FileId, fdata: Arc<FileData> },
+	Parse { file: FileId, fdata: Arc<FileData> },
+	ResolveSymbols { file: FileId, fdata: Arc<FileData> },
 }
 
 pub struct CompilerState {
-	pub files:   DashMap<FileId, FileData>,
+	pub files:   DashMap<FileId, Arc<FileData>>,
 	pub globalq: Injector<Job>,
 	pub njobs:   AtomicUsize,
 	pub flags:   Flags,
@@ -95,13 +93,13 @@ where
 	});
 	for (i, path) in paths.into_iter().enumerate() {
 		let id = FileId(i);
-		let data = match FileData::new(path.clone().into()) {
-			Ok(x) => x,
-			Err(e) => err!(e, "{}", path.display()),
-		};
-		state.files.insert(id, data);
+		let fdata = Arc::new(
+			FileData::new(path.clone().into())
+				.unwrap_or_else(|e| err!(e, "{}", path.display())),
+		);
+		state.files.insert(id, Arc::clone(&fdata));
 		state.njobs.fetch_add(1, Ordering::Relaxed);
-		state.globalq.push(Job::Lex { file: id });
+		state.globalq.push(Job::Lex { file: id, fdata });
 	}
 
 	let mut workers = Vec::with_capacity(flags.threads);
@@ -119,48 +117,28 @@ where
 		let stealer_view = Arc::clone(&stealer_view);
 		let state = Arc::clone(&state);
 		threads.push(thread::spawn(move || {
-			worker_loop(id, state, w, stealer_view);
+			worker_loop(id, state, w, stealer_view)
 		}));
 	}
 
 	for t in threads {
-		t.join().unwrap_or_else(|e| panic::resume_unwind(e));
+		if let Err(e) = t.join() {
+			std::panic::resume_unwind(e)
+		}
 	}
 }
 
-macro_rules! fdata_read {
-	($state:expr, $file:expr, $($field:ident),+ $(,)?) => {
-		#[allow(unused_parens)]
-		let ($($field),+) = {
-			let fdata = $state.files.get(&$file).unwrap();
-			($(fdata.$field.clone()),+)
-		};
-	};
-}
-
-macro_rules! fdata_write {
-	($state:expr, $file:expr, $($field:ident),+ $(,)?) => {
-		{
-			let mut fdata = $state.files.get_mut(&$file).unwrap();
-			$(
-				fdata.$field = Arc::from(MaybeUninit::new($field));
-			)+
-		}
-	};
-}
-
-fn emit_errors<T>(state: Arc<CompilerState>, file: FileId, errors: T)
+fn emit_errors<T>(fdata: &FileData, errors: T)
 where
 	T: IntoIterator<Item = OryxError>,
 {
-	fdata_read!(state, file, name, buffer);
-	for e in errors.into_iter() {
-		e.report(name.as_ref(), buffer.as_ref());
+	for e in errors {
+		e.report(&fdata.name, &fdata.buffer);
 	}
 }
 
 fn worker_loop(
-	id: usize,
+	_id: usize,
 	state: Arc<CompilerState>,
 	queue: Worker<Job>,
 	stealers: Arc<[Stealer<Job>]>,
@@ -170,62 +148,61 @@ fn worker_loop(
 			break;
 		}
 
-		let job = find_task(&queue, &state.globalq, &stealers);
-		if let Some(job) = job {
-			match job {
-				Job::Lex { file } => {
-					fdata_read!(state, file, buffer);
-					let tokens = match lexer::tokenize(buffer.as_ref()) {
-						Ok(xs) => xs,
-						Err(e) => {
-							emit_errors(state.clone(), file, iter::once(e));
-							process::exit(1);
-						},
-					};
+		let Some(job) = find_task(&queue, &state.globalq, &stealers) else {
+			thread::yield_now();
+			continue;
+		};
 
-					if state.flags.debug_lexer {
-						let mut handle = io::stderr().lock();
-						for t in tokens.iter() {
-							let _ = write!(handle, "{t:?}\n");
-						}
+		match job {
+			Job::Lex { file, fdata } => {
+				let tokens = match lexer::tokenize(&fdata.buffer) {
+					Ok(xs) => xs,
+					Err(e) => {
+						emit_errors(&fdata, once(e));
+						process::exit(1)
+					},
+				};
+
+				if state.flags.debug_lexer {
+					let mut handle = io::stderr().lock();
+					for t in tokens.iter() {
+						let _ = write!(handle, "{t:?}\n");
 					}
+				}
 
-					fdata_write!(state, file, tokens);
-					state.njobs.fetch_add(1, Ordering::Relaxed);
-					queue.push(Job::Parse { file });
-				},
-				Job::Parse { file } => {
-					fdata_read!(state, file, tokens);
-					let (ast, extra_data) = match parser::parse(
-						unsafe { tokens.assume_init() }.as_ref(),
-					) {
+				fdata.tokens.set(tokens).unwrap();
+				state.njobs.fetch_add(1, Ordering::Relaxed);
+				queue.push(Job::Parse { file, fdata });
+			},
+			Job::Parse { file, fdata } => {
+				let (ast, extra_data) =
+					match parser::parse(fdata.tokens.get().unwrap()) {
 						Ok(xs) => xs,
 						Err(errs) => {
-							emit_errors(state.clone(), file, errs);
-							process::exit(1);
+							emit_errors(&fdata, errs);
+							process::exit(1)
 						},
 					};
 
-					if state.flags.debug_parser {
-						let mut handle = io::stderr().lock();
-						for n in ast.iter() {
-							let _ = write!(handle, "{n:?}\n");
-						}
+				if state.flags.debug_parser {
+					let mut handle = io::stderr().lock();
+					for n in ast.iter() {
+						let _ = write!(handle, "{n:?}\n");
 					}
+				}
 
-					fdata_write!(state, file, ast, extra_data);
-					state.njobs.fetch_add(1, Ordering::Relaxed);
-					queue.push(Job::ResolveSymbols { file });
-				},
-				Job::ResolveSymbols { file } => {
-					err!("not implemented");
-				},
-			}
-
-			state.njobs.fetch_sub(1, Ordering::Relaxed);
-		} else {
-			thread::yield_now();
+				fdata.ast.set(ast).unwrap();
+				fdata.extra_data.set(extra_data).unwrap();
+				state.njobs.fetch_add(1, Ordering::Relaxed);
+				queue.push(Job::ResolveSymbols { file, fdata });
+			},
+			Job::ResolveSymbols { file: _, fdata: _ } => {
+				err!("not implemented");
+				// unimplemented!()
+			},
 		}
+
+		state.njobs.fetch_sub(1, Ordering::Relaxed);
 	}
 }
 
@@ -256,5 +233,5 @@ fn find_task(
 		}
 	}
 
-	return None;
+	None
 }
