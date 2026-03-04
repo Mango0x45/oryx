@@ -7,6 +7,7 @@ mod parser;
 mod size;
 mod unicode;
 
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::{
 	env,
@@ -40,11 +41,15 @@ impl Flags {
 				Short('l') | Long("debug-lexer") => flags.debug_lexer = true,
 				Short('p') | Long("debug-parser") => flags.debug_parser = true,
 				Short('s') | Long("error-style") => {
-					/* TODO: Don’t unwrap */
-					flags.error_style = match parser.value()?.to_str().unwrap() {
-						"oneline" => errors::ErrorStyle::OneLine,
-						"standard" => errors::ErrorStyle::Standard,
-						s => Err(format!("{s}: invalid value for -s/--error-style"))?,
+					flags.error_style = match parser.value()?.to_string_lossy()
+					{
+						Cow::Borrowed("oneline") => errors::ErrorStyle::OneLine,
+						Cow::Borrowed("standard") => {
+							errors::ErrorStyle::Standard
+						},
+						s => Err(format!(
+							"{s}: invalid value for -s/--error-style"
+						))?,
 					};
 				},
 				Short('t') | Long("threads") => {
