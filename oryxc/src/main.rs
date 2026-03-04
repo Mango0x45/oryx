@@ -7,6 +7,7 @@ mod lexer;
 mod parser;
 mod prelude;
 mod size;
+mod symtab;
 mod unicode;
 
 use std::ffi::OsString;

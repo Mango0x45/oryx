@@ -7,18 +7,9 @@ use std::fmt::{
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FileId(pub usize);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ScopeId(pub usize);
-
-impl ScopeId {
-	pub const GLOBAL: Self = Self(0);
-}
-
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SymbolId(pub u32);
-
-pub struct SymbolVal {}
 
 #[derive(Clone, Copy)]
 pub struct SubNodes(pub u32, pub u32);

@@ -25,13 +25,13 @@ use crossbeam_deque::{
 	Stealer,
 	Worker,
 };
-use dashmap::DashMap;
 use soa_rs::Soa;
 
 use crate::errors::OryxError;
 use crate::lexer::Token;
 use crate::parser::AstNode;
 use crate::prelude::*;
+use crate::symtab::*;
 use crate::{
 	Flags,
 	err,
@@ -39,13 +39,14 @@ use crate::{
 	parser,
 };
 
+#[allow(dead_code)]
 pub struct FileData {
 	pub name:       OsString,
 	pub buffer:     String,
 	pub tokens:     OnceLock<Soa<Token>>,
 	pub ast:        OnceLock<Soa<AstNode>>,
 	pub extra_data: OnceLock<Vec<u32>>,
-	pub scopes:     Vec<DashMap<SymbolId, SymbolVal>>,
+	pub symtab:     SymbolTable,
 }
 
 impl FileData {
@@ -67,7 +68,7 @@ impl FileData {
 			tokens: OnceLock::new(),
 			ast: OnceLock::new(),
 			extra_data: OnceLock::new(),
-			scopes: Vec::new(),
+			symtab: SymbolTable::new(),
 		})
 	}
 }
@@ -264,12 +265,12 @@ fn worker_loop(
 				}
 			},
 			Job::ResolveDef {
-				file,
-				fdata,
-				scope,
-				node,
+				file: _,
+				fdata: _,
+				scope: _,
+				node: _,
 			} => {
-				eprintln!("Resolving def at node index {node:?}");
+                todo!();
 			},
 		}
 
