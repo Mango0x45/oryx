@@ -144,7 +144,7 @@ fn worker_loop(
 	stealers: Arc<[Stealer<Job>]>,
 ) {
 	loop {
-		if state.njobs.load(Ordering::Relaxed) == 0 {
+		if state.njobs.load(Ordering::Acquire) == 0 {
 			break;
 		}
 
@@ -202,7 +202,7 @@ fn worker_loop(
 			},
 		}
 
-		state.njobs.fetch_sub(1, Ordering::Relaxed);
+		state.njobs.fetch_sub(1, Ordering::Release);
 	}
 }
 
