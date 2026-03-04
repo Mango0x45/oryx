@@ -128,14 +128,32 @@ where
 	}
 }
 
+macro_rules! fdata_read {
+	($state:expr, $file:expr, $($field:ident),+ $(,)?) => {
+        #[allow(unused_parens)]
+		let ($($field),+) = {
+			let fdata = $state.files.get(&$file).unwrap();
+			($(fdata.$field.clone()),+)
+		};
+	};
+}
+
+macro_rules! fdata_write {
+	($state:expr, $file:expr, $($field:ident),+ $(,)?) => {
+		{
+			let mut fdata = $state.files.get_mut(&$file).unwrap();
+			$(
+				fdata.$field = Arc::from(MaybeUninit::new($field));
+			)+
+		}
+	};
+}
+
 fn emit_errors<T>(state: Arc<CompilerState>, file: FileId, errors: T)
 where
 	T: IntoIterator<Item = OryxError>,
 {
-	let (name, buffer) = {
-		let fdata = state.files.get(&file).unwrap();
-		(fdata.name.clone(), fdata.buffer.clone())
-	};
+	fdata_read!(state, file, name, buffer);
 	for e in errors.into_iter() {
 		e.report(name.as_ref(), buffer.as_ref());
 	}
@@ -156,10 +174,7 @@ fn worker_loop(
 		if let Some(job) = job {
 			match job {
 				Job::Lex { file } => {
-					let buffer = {
-						let fdata = state.files.get(&file).unwrap();
-						fdata.buffer.clone()
-					};
+					fdata_read!(state, file, buffer);
 					let tokens = match lexer::tokenize(buffer.as_ref()) {
 						Ok(xs) => xs,
 						Err(e) => {
@@ -175,19 +190,12 @@ fn worker_loop(
 						}
 					}
 
-					{
-						let mut fdata = state.files.get_mut(&file).unwrap();
-						fdata.tokens = Arc::from(MaybeUninit::new(tokens));
-					}
-
+					fdata_write!(state, file, tokens);
 					state.njobs.fetch_add(1, Ordering::Relaxed);
 					queue.push(Job::Parse { file });
 				},
 				Job::Parse { file } => {
-					let tokens = {
-						let fdata = state.files.get(&file).unwrap();
-						fdata.tokens.clone()
-					};
+					fdata_read!(state, file, tokens);
 					let (ast, extra_data) = match parser::parse(
 						unsafe { tokens.assume_init() }.as_ref(),
 					) {
@@ -205,13 +213,7 @@ fn worker_loop(
 						}
 					}
 
-					{
-						let mut fdata = state.files.get_mut(&file).unwrap();
-						fdata.ast = Arc::from(MaybeUninit::new(ast));
-						fdata.extra_data =
-							Arc::from(MaybeUninit::new(extra_data));
-					}
-
+					fdata_write!(state, file, ast, extra_data);
 					state.njobs.fetch_add(1, Ordering::Relaxed);
 					queue.push(Job::ResolveSymbols { file });
 				},
