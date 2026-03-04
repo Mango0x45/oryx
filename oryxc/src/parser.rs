@@ -436,11 +436,12 @@ impl<'a> Parser<'a> {
 						));
 					}
 
-					let extra_data_beg = p.extra_data.len();
+					let lhsbeg = p.extra_data.len();
 					p.extra_data.push(nlexprs as u32);
 					for x in &p.scratch[lhs..rhs] {
 						p.extra_data.push(*x);
 					}
+					let rhsbeg = p.extra_data.len();
 					p.extra_data.push(nrexprs as u32);
 					for x in &p.scratch[rhs..] {
 						p.extra_data.push(*x);
@@ -449,10 +450,7 @@ impl<'a> Parser<'a> {
 					return Ok(p.new_node(AstNode {
 						kind: AstType::Assign,
 						tok:  main_tok,
-						sub:  SubNodes(
-							extra_data_beg as u32,
-							(extra_data_beg + nlexprs + 1) as u32,
-						),
+						sub:  SubNodes(lhsbeg as u32, rhsbeg as u32),
 					}));
 				}) {
 					Ok(e) => e,
