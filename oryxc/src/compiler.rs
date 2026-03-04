@@ -96,8 +96,8 @@ where
 			Err(e) => err!(e, "{}", path.display()),
 		};
 		state.files.insert(id, data);
-		state.njobs.fetch_add(1, Ordering::SeqCst);
 		state.globalq.push(Job::LexAndParse { file: id });
+		state.njobs.fetch_add(1, Ordering::Relaxed);
 	}
 
 	let mut workers = Vec::with_capacity(flags.threads);
@@ -144,7 +144,7 @@ fn worker_loop(
 	stealers: Arc<[Stealer<Job>]>,
 ) {
 	loop {
-		if state.njobs.load(Ordering::SeqCst) == 0 {
+		if state.njobs.load(Ordering::Relaxed) == 0 {
 			break;
 		}
 
@@ -193,7 +193,7 @@ fn worker_loop(
 				_ => todo!(),
 			}
 
-			state.njobs.fetch_sub(1, Ordering::SeqCst);
+			state.njobs.fetch_sub(1, Ordering::Relaxed);
 		} else {
 			thread::yield_now();
 		}
