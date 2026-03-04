@@ -38,10 +38,9 @@ pub enum AstType {
 	Number,         /* (_, _) */
 	Pointer,        /* (rhs, _) */
 	Return,         /* (extra-data, extra-data-len) */
-	/* TODO: Construct this thing */
-	Root,          /* (extra-data, extra-data-len) */
-	String,        /* (_, _) */
-	UnaryOperator, /* (rhs, _) */
+	Root,           /* (extra-data, extra-data-len) */
+	String,         /* (_, _) */
+	UnaryOperator,  /* (rhs, _) */
 }
 
 #[derive(Clone, Copy)]
@@ -218,12 +217,13 @@ impl<'a> Parser<'a> {
 
 	fn parse_toplevel(&mut self) {
 		let mut syncp = false;
-		match self.get() {
+		let k = match self.get() {
 			TokenType::KeywordDef => match self.parse_def() {
-				Ok(_) => {},
+				Ok(e) => e,
 				Err(e) => {
 					self.new_error(e);
 					syncp = true;
+					u32::MAX
 				},
 			},
 			TokenType::Eof => return,
@@ -231,16 +231,19 @@ impl<'a> Parser<'a> {
 				self.new_error(OryxError::new(
 					self.get_view(),
 					format!(
-						"expected top-level statement but got {:?}",
+						"expected top-level statement but got {:?}", /* TODO: Impl Display for TokenType */
 						self.get(),
 					),
 				));
 				syncp = true;
+				u32::MAX
 			},
 		};
 
 		if syncp {
 			self.sync(&[TokenType::Eof, TokenType::KeywordDef]);
+		} else {
+			self.scratch.push(k);
 		}
 	}
 
@@ -844,9 +847,17 @@ pub fn parse(
 	while p.get() != TokenType::Eof {
 		p.parse_toplevel();
 	}
-	return if p.errors.len() != 0 {
-		Err(p.errors)
-	} else {
-		Ok((p.ast, p.extra_data))
-	};
+	if p.errors.len() != 0 {
+		return Err(p.errors);
+	}
+
+	let stmtsbeg = p.extra_data.len();
+	let nstmts = p.scratch.len();
+	p.extra_data.append(&mut p.scratch);
+	p.new_node(AstNode {
+		kind: AstType::Root,
+		tok:  0,
+		sub:  SubNodes(stmtsbeg as u32, nstmts as u32),
+	});
+	return Ok((p.ast, p.extra_data));
 }
