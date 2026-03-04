@@ -20,7 +20,7 @@ use crate::size;
 
 const MAX_PREC: i64 = 6;
 
-/* Remember to edit the cases in Parser.node_span_1() when editing
+/* Remember to edit the cases in Parser.node_leaf_*() when editing
  * this list! */
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,7 +30,7 @@ pub enum AstType {
 	Block,          /* (extra-data, extra-data-len) */
 	Dereference,    /* (lhs, _) */
 	Empty,          /* (_, _) */
-	FunCall,        /* (expression, extra-data) */
+	FunCall,        /* (expression, extra-data-exprs) */
 	FunProto,       /* (extra-data-args, extra-data-rets) */
 	Function,       /* (prototype, body) */
 	Identifier,     /* (_, _) */
@@ -152,65 +152,136 @@ impl<'a> Parser<'a> {
 	}
 
 	fn node_span(&self, node: u32) -> (usize, usize) {
-		let toks = self.ast.tok();
-		let views = self.tokens.view();
-		let (lhs, rhs) = self.node_span_1(node);
-		let (lhs, rhs) = (toks[lhs as usize], toks[rhs as usize]);
-		return (views[lhs as usize].0, views[rhs as usize].1);
+		let (lhs, rhs) = (self.node_leaf_l(node), self.node_leaf_r(node));
+		unsafe {
+			let lhs = self.ast.tok().get_unchecked(lhs as usize);
+			let rhs = self.ast.tok().get_unchecked(rhs as usize);
+			let lhs = self.tokens.view().get_unchecked(*lhs as usize).0;
+			let rhs = self.tokens.view().get_unchecked(*rhs as usize).1;
+			return (lhs, rhs);
+		};
 	}
 
-	fn node_span_1(&self, node: u32) -> (u32, u32) {
-		let SubNodes(_0, _1) = self.ast.sub()[node as usize];
+	fn node_leaf_l(&self, node: u32) -> u32 {
 		return match self.ast.kind()[node as usize] {
 			AstType::Assign => {
-				let lhs =
-					self.node_span_1(self.extra_data[(_0 + 1) as usize]).0;
-				let rhs = self
-					.node_span_1(
-						self.extra_data
-							[(_1 + self.extra_data[_1 as usize]) as usize],
-					)
-					.1;
-				(lhs, rhs)
+				let i = self.ast.sub()[node as usize].0 + 1;
+				let expr = self.extra_data[i as usize];
+				self.node_leaf_l(expr)
 			},
-			AstType::Dereference => (self.node_span_1(_0).0, node),
-			AstType::FunProto => {
-				let nargs = self.extra_data[_0 as usize];
-				let nrets = self.extra_data[_1 as usize];
-				let rhs = match (nargs, nrets) {
-					(0, 0) => node,
-					(_, 0) => self.extra_data[(_0 + nargs) as usize],
-					(_, _) => self.extra_data[(_1 + nrets) as usize],
-				};
-				(node, self.node_span_1(rhs).1)
+			AstType::BinaryOperator => {
+				self.node_leaf_l(self.ast.sub()[node as usize].0)
 			},
-			AstType::Identifier => (node, node),
-			AstType::MultiDefBind => {
-				let expr = self.extra_data
-					[(_1 + self.extra_data[_1 as usize]) as usize];
-				(node, self.node_span_1(expr).1)
-			},
-			AstType::Pointer => (node, self.node_span_1(_0).1),
-			AstType::Block
-			| AstType::FunCall
-			| AstType::Return
-			| AstType::Root => {
-				if _1 == 0 {
-					(node, node)
+			AstType::Block => {
+				let SubNodes(i, len) = self.ast.sub()[node as usize];
+				if len == 0 {
+					node
 				} else {
-					(
-						node,
-						self.node_span_1(
-							self.extra_data[(_0 + _1 - 1) as usize],
-						)
-						.1,
-					)
+					self.node_leaf_l(self.extra_data[i as usize])
 				}
 			},
-			AstType::Empty | AstType::Number | AstType::String => (node, node),
-			AstType::UnaryOperator => (node, self.node_span_1(_0).1),
-			AstType::BinaryOperator | AstType::Function => {
-				(self.node_span_1(_0).0, self.node_span_1(_1).1)
+			AstType::Dereference => {
+				self.node_leaf_l(self.ast.sub()[node as usize].0)
+			},
+			AstType::Empty => node,
+			AstType::FunCall => {
+				self.node_leaf_l(self.ast.sub()[node as usize].0)
+			},
+			AstType::FunProto => node,
+			AstType::Function => node,
+			AstType::Identifier => node,
+			AstType::MultiDefBind => node,
+			AstType::Number => node,
+			AstType::Pointer => node,
+			AstType::Return => node,
+			AstType::Root => {
+				let SubNodes(i, len) = self.ast.sub()[node as usize];
+				if len == 0 {
+					node
+				} else {
+					self.node_leaf_l(self.extra_data[i as usize])
+				}
+			},
+			AstType::String => node,
+			AstType::UnaryOperator => node,
+		};
+	}
+
+	fn node_leaf_r(&self, node: u32) -> u32 {
+		return match self.ast.kind()[node as usize] {
+			AstType::Assign => {
+				let i = self.ast.sub()[node as usize].1;
+				let nexprs = self.extra_data[i as usize];
+				self.node_leaf_r(self.extra_data[(i + nexprs) as usize])
+			},
+			AstType::BinaryOperator => {
+				self.node_leaf_r(self.ast.sub()[node as usize].1)
+			},
+			AstType::Block => {
+				let SubNodes(i, len) = self.ast.sub()[node as usize];
+				if len == 0 {
+					node
+				} else {
+					self.node_leaf_r(self.extra_data[(i + len - 1) as usize])
+				}
+			},
+			AstType::Dereference => node,
+			AstType::Empty => node,
+			AstType::FunCall => {
+				let i = self.ast.sub()[node as usize].1;
+				let len = self.extra_data[i as usize];
+				if len == 0 {
+					node
+				} else {
+					self.node_leaf_r(self.extra_data[(i + len) as usize])
+				}
+			},
+			AstType::FunProto => {
+				let SubNodes(i, j) = self.ast.sub()[node as usize];
+				let jlen = self.extra_data[j as usize];
+				if jlen == 0 {
+					let ilen = self.extra_data[i as usize];
+					if ilen == 0 {
+						node
+					} else {
+						self.node_leaf_r(self.extra_data[(i + ilen) as usize])
+					}
+				} else {
+					self.node_leaf_r(self.extra_data[(j + jlen) as usize])
+				}
+			},
+			AstType::Function => {
+				self.node_leaf_r(self.ast.sub()[node as usize].1)
+			},
+			AstType::Identifier => node,
+			AstType::MultiDefBind => {
+				let i = self.ast.sub()[node as usize].1;
+				let len = self.extra_data[i as usize];
+				self.node_leaf_r(self.extra_data[(i + len) as usize])
+			},
+			AstType::Number => node,
+			AstType::Pointer => {
+				self.node_leaf_r(self.ast.sub()[node as usize].0)
+			},
+			AstType::Return => {
+				let SubNodes(i, len) = self.ast.sub()[node as usize];
+				if len == 0 {
+					node
+				} else {
+					self.node_leaf_r(self.extra_data[(i + len - 1) as usize])
+				}
+			},
+			AstType::Root => {
+				let SubNodes(i, len) = self.ast.sub()[node as usize];
+				if len == 0 {
+					node
+				} else {
+					self.node_leaf_r(self.extra_data[(i + len - 1) as usize])
+				}
+			},
+			AstType::String => node,
+			AstType::UnaryOperator => {
+				self.node_leaf_r(self.ast.sub()[node as usize].0)
 			},
 		};
 	}
@@ -825,7 +896,7 @@ impl<'a> Parser<'a> {
 							p.extra_data.push(*x);
 						}
 						/* FIXME: Missing LHS, and doesn’t conform to the
-                         * description at the definition of AstType */
+						 * description at the definition of AstType */
 						return Ok(p.new_node(AstNode {
 							kind: AstType::FunCall,
 							tok,
