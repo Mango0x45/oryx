@@ -3,7 +3,10 @@ use std::io::{
 	self,
 	Write,
 };
-use std::iter::IntoIterator;
+use std::iter::{
+	self,
+	IntoIterator,
+};
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::{
@@ -160,7 +163,7 @@ fn worker_loop(
 					let tokens = match lexer::tokenize(buffer.as_ref()) {
 						Ok(xs) => xs,
 						Err(e) => {
-							emit_errors(state.clone(), file, vec![e]);
+							emit_errors(state.clone(), file, iter::once(e));
 							process::exit(1);
 						},
 					};
