@@ -41,10 +41,11 @@ use crate::{
 pub struct FileId(usize);
 
 pub struct FileData {
-	name:   Arc<OsString>,
-	buffer: Arc<String>,
-	tokens: Arc<MaybeUninit<Soa<Token>>>,
-	ast:    Arc<MaybeUninit<Soa<AstNode>>>,
+	name:       Arc<OsString>,
+	buffer:     Arc<String>,
+	tokens:     Arc<MaybeUninit<Soa<Token>>>,
+	ast:        Arc<MaybeUninit<Soa<AstNode>>>,
+	extra_data: Arc<MaybeUninit<Vec<u32>>>,
 }
 
 impl FileData {
@@ -57,10 +58,11 @@ impl FileData {
 		buffer.push_str(unsafe { str::from_utf8_unchecked(&PAD) });
 
 		return Ok(Self {
-			name:   name.into(),
-			buffer: buffer.into(),
-			tokens: Arc::new_uninit(),
-			ast:    Arc::new_uninit(),
+			name:       name.into(),
+			buffer:     buffer.into(),
+			tokens:     Arc::new_uninit(),
+			ast:        Arc::new_uninit(),
+			extra_data: Arc::new_uninit(),
 		});
 	}
 }
