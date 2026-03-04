@@ -2,7 +2,7 @@
 
 mod compiler;
 mod errors;
-mod intern;
+// mod intern;
 mod lexer;
 mod parser;
 mod prelude;
