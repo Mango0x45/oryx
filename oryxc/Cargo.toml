@@ -1,23 +1,20 @@
 [package]
-name    = "oryx"
+name = "oryx"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 boxcar = "0.2.14"
-clap           = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 crossbeam-deque = "0.8.6"
 dashmap = "6.1.0"
-phf            = { version = "0.13.1", features = ["macros"] }
-soa-rs         = "0.9.1"
-unicode-width  = "0.2.2"
-
-# num-rational = "0.4.2"
-# icu = { version = "2.1.1", features = ["compiled_data"] }
+phf = { version = "0.13.1", features = ["macros"] }
+soa-rs = "0.9.1"
+unicode-width = "0.2.2"
 
 [features]
 fetch = ["dep:ureq", "dep:zip"]
 
 [build-dependencies]
-ureq = { version = "2", optional = true }
-zip  = { version = "2", optional = true }
+ureq = { version = "3.2.0", optional = true }
+zip = { version = "8.2.0", optional = true }
