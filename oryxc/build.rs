@@ -1,23 +1,29 @@
 use std::collections::HashMap;
 use std::env;
-use std::fs::File;
+use std::fs::{
+	self,
+	File,
+};
 use std::io::{
 	self,
 	BufRead,
 	BufReader,
 	Write,
 };
+use std::path::Path;
+use std::process::Command;
 
 const MIN_SHIFT: usize = 1;
 const MAX_SHIFT: usize = 22;
 
 fn main() {
 	let out_dir = env::var("OUT_DIR").unwrap();
-	let root = env::var("CARGO_MANIFEST_DIR").unwrap();
-	let data = format!("{root}/../data");
+	let data = format!("{out_dir}/data");
 
 	println!("cargo:rerun-if-changed={data}/DerivedCoreProperties.txt");
 	println!("cargo:rerun-if-changed={data}/PropList.txt");
+
+	fetch_data_if_missing(&out_dir, &data);
 
 	generate_from_file(
 		&out_dir,
@@ -45,6 +51,55 @@ fn main() {
 		],
 		"line_terminator",
 	);
+}
+
+/// Fetches unicode data files if missing. Replaces the fetch script.
+fn fetch_data_if_missing(out_dir: &str, data: &str) {
+	let derived = format!("{data}/DerivedCoreProperties.txt");
+	let proplist = format!("{data}/PropList.txt");
+	if Path::new(&derived).exists() && Path::new(&proplist).exists() {
+		// Data exists
+		return;
+	}
+
+	let zip = format!("{out_dir}/UCD.zip");
+
+	// curl -LO https://www.unicode.org/Public/zipped/latest/UCD.zip
+	let status = Command::new("curl")
+		.args([
+			"-Lo",
+			&zip,
+			"https://www.unicode.org/Public/zipped/latest/UCD.zip",
+		])
+		.status()
+		.expect("failed to run curl");
+	assert!(status.success(), "curl failed to download UCD.zip");
+
+	// mkdir -p data
+	fs::create_dir_all(data).unwrap();
+
+	// unzip -od data UCD.zip
+	let status = Command::new("unzip")
+		.args(["-od", data, &zip])
+		.status()
+		.expect("failed to run unzip");
+	assert!(status.success(), "unzip failed");
+
+	fs::remove_file(&zip).ok();
+
+	// XID_Start and XID_Continue additions
+	let mut f = fs::OpenOptions::new()
+		.append(true)
+		.open(&derived)
+		.expect("failed to open DerivedCoreProperties.txt");
+	writeln!(
+		f,
+		"0024          ; XID_Start # Pc       DOLLAR SIGN\n\
+		 005F          ; XID_Start # Pc       LOW LINE\n\
+		 2032..2034    ; XID_Continue # Po   [3] PRIME..TRIPLE PRIME\n\
+		 2057          ; XID_Continue # Po       QUADRUPLE PRIME"
+	)
+	.unwrap();
 }
 
 fn generate_from_file(out_dir: &str, path: &str, prop: &str, name: &str) {
