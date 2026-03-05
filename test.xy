@@ -27,6 +27,8 @@ def main′ = func() {
 	});
 };
 
+def r, g, b u8 = 1, 2, 3;
+
 def some_func = func(n u32) u32 { return n * 2; };
 
 /* def MY_FLOAT = union { f f64; n u64; } { n = 0x482DEF }.f */

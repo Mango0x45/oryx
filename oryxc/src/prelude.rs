@@ -11,6 +11,34 @@ pub struct FileId(pub usize);
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SymbolId(pub u32);
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ScopeId(pub usize);
+
+impl ScopeId {
+	pub const GLOBAL: Self = Self(0);
+}
+
+#[derive(Default)]
+pub enum ResolutionState {
+	#[default]
+	Unresolved,
+	Resolving,
+	Resolved,
+	Poisoned,
+}
+
+#[derive(Default)]
+pub struct Symbol {
+	pub state:  ResolutionState,
+	pub r#type: u32,
+}
+
+pub enum OryxType {
+	Integer { bits: usize, signed: bool },
+	Pointer { base: u32 },
+    Function { args: Vec<u32>, rets: Vec<u32> },
+}
+
 #[derive(Clone, Copy)]
 pub struct SubNodes(pub u32, pub u32);
 

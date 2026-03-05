@@ -42,6 +42,11 @@ impl PartialEq for UniStr<'_> {
 		/* Most code is ASCII, and normalization is obviously a lot
 		 * slower than not normalizing, so we try to only normalize when
 		 * we have to */
+
+		if self.0.is_ascii() && other.0.is_ascii() {
+			return self.0 == other.0;
+		}
+
 		return match (
 			unicode_normalization::is_nfkd_quick(self.0.chars())
 				== IsNormalized::Yes,
@@ -50,10 +55,10 @@ impl PartialEq for UniStr<'_> {
 		) {
 			(true, true) => self.0 == other.0,
 			(true, false) => {
-				self.0.bytes().map(|b| b as char).eq(other.0.nfkd())
+				self.0.chars().map(|b| b as char).eq(other.0.nfkd())
 			},
 			(false, true) => {
-				self.0.nfkd().eq(other.0.bytes().map(|b| b as char))
+				self.0.nfkd().eq(other.0.chars().map(|b| b as char))
 			},
 			(false, false) => self.0.nfkd().eq(other.0.nfkd()),
 		};
@@ -72,7 +77,7 @@ impl<'a> Interner<'a> {
 		return self.store[key.0 as usize];
 	}
 
-	pub fn intern(&mut self, value: &'a str) -> SymbolId {
+	pub fn intern(&self, value: &'a str) -> SymbolId {
 		if let Some(key) = self.map.get(&UniStr(value)) {
 			return *key;
 		}
@@ -88,6 +93,7 @@ fn test_unistr_eq() {
 	assert_eq!(UniStr("fishi"), UniStr("fishi"));
 	assert_eq!(UniStr("ﬁshi"), UniStr("fishᵢ"));
 	assert_eq!(UniStr("ﬁshᵢ"), UniStr("ﬁshᵢ"));
+	assert_eq!(UniStr("corné"), UniStr("corné"));
 }
 
 #[test]
@@ -98,6 +104,7 @@ fn test_unistr_hash() {
 		(UniStr("fishi"), UniStr("fishi")),
 		(UniStr("ﬁshi"), UniStr("fishᵢ")),
 		(UniStr("ﬁshᵢ"), UniStr("ﬁshᵢ")),
+		(UniStr("corné"), UniStr("corné")),
 	] {
 		let mut hashl = DefaultHasher::new();
 		let mut hashr = DefaultHasher::new();
