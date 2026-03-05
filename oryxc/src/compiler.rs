@@ -244,15 +244,12 @@ fn worker_loop(
 	stealers: Arc<[Stealer<Job>]>,
 ) {
 	loop {
-		if state.njobs.load(Ordering::Acquire) == 0 {
-			break;
-		}
-
 		let Some(job) = find_task(&queue, &state.globalq, &stealers) else {
-			// no work available; check termination condition before parking to
-			// avoid missed wakeups
+			/* No work available; check termination condition before
+			 * parking to avoid missed wakeups */
 			if state.njobs.load(Ordering::Acquire) == 0 {
-				break;
+				state.wake_all();
+				return;
 			}
 			thread::park();
 			continue;
