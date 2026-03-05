@@ -36,7 +36,7 @@ pub struct Symbol {
 pub enum OryxType {
 	Integer { bits: usize, signed: bool },
 	Pointer { base: u32 },
-    Function { args: Vec<u32>, rets: Vec<u32> },
+	Function { args: Vec<u32>, rets: Vec<u32> },
 }
 
 #[derive(Clone, Copy)]
