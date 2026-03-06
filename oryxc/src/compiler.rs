@@ -4,7 +4,6 @@ use std::io::{
 	Read,
 	Write,
 };
-use std::iter::once;
 use std::sync::atomic::{
 	AtomicUsize,
 	Ordering,
@@ -15,6 +14,7 @@ use std::sync::{
 };
 use std::{
 	fs,
+	iter,
 	process,
 	thread,
 };
@@ -105,23 +105,21 @@ pub struct Job {
 	kind: JobType,
 }
 
-pub struct CompilerState<'a> {
+struct CompilerState<'a> {
 	#[allow(dead_code)]
-	pub globalq:        Injector<Job>,
-	pub njobs:          AtomicUsize,
-	pub flags:          Flags,
-	pub worker_threads: OnceLock<Box<[thread::Thread]>>,
+	globalq: Injector<Job>,
+	njobs:          AtomicUsize,
+	flags:          Flags,
+	worker_threads: OnceLock<Box<[thread::Thread]>>,
 	/* Files needs to be after interner, so that the files get dropped
 	 * after the interner.  This is because the interner holds references
 	 * to substrings of file buffers, so we want to control the drop
 	 * order to avoid any potential undefined behaviour. */
-
-	interner: Interner<'a>,
-	files:    Vec<Arc<FileData>>,
-
-	deps:    DashMap<usize, boxcar::Vec<Job>>,
-	next_id: AtomicUsize,
-	types:   boxcar::Vec<OryxType>,
+	interner:       Interner<'a>,
+	files:          Vec<Arc<FileData>>,
+	deps:           DashMap<usize, boxcar::Vec<Job>>,
+	next_id:        AtomicUsize,
+	types:          boxcar::Vec<OryxType>,
 }
 
 impl<'a> CompilerState<'a> {
@@ -159,8 +157,8 @@ where
 	for (i, path) in paths.into_iter().enumerate() {
 		let id = FileId(i);
 
-		// take ownership of the OsString so we can store it in FileData without
-		// cloning
+		// Take ownership of the OsString so we can store it in FileData
+		// without cloning
 		let display = path.to_string_lossy().into_owned();
 		let fdata = Arc::new(
 			FileData::new(path).unwrap_or_else(|e| err!(e, "{}", display)),
@@ -202,38 +200,29 @@ where
 		state.globalq.push(job);
 	}
 
-	let mut workers = Vec::with_capacity(flags.threads);
-	let mut stealers = Vec::with_capacity(flags.threads);
-	for _ in 0..flags.threads {
+	let mut workers = Box::new_uninit_slice(flags.threads);
+	let mut stealers = Box::new_uninit_slice(flags.threads);
+	for i in 0..flags.threads {
 		let w = Worker::new_fifo();
-		stealers.push(w.stealer());
-		workers.push(w);
+		stealers[i].write(w.stealer());
+		workers[i].write(w);
 	}
+	let workers = unsafe { workers.assume_init() };
+	let stealers = Arc::from(unsafe { stealers.assume_init() });
 
-	let stealer_view: Arc<[_]> = Arc::from(stealers);
-	let handles: Vec<_> = workers
-		.into_iter()
-		.enumerate()
-		.map(|(id, w)| {
-			let stealer_view = Arc::clone(&stealer_view);
+	let mut worker_threads = Box::new_uninit_slice(workers.len());
+	thread::scope(|s| {
+		for (i, w) in workers.into_iter().enumerate() {
+			let stealers = Arc::clone(&stealers);
 			let state = Arc::clone(&state);
-			thread::spawn(move || worker_loop(id, state, w, stealer_view))
-		})
-		.collect();
-
-	let worker_threads: Box<[thread::Thread]> =
-		handles.iter().map(|h| h.thread().clone()).collect();
-	let _ = state.worker_threads.set(worker_threads);
-
-	// if work completes before we get here, wake them so they can observe
-	// the termination condition and exit.
-	state.wake_all();
-
-	for h in handles {
-		if let Err(e) = h.join() {
-			std::panic::resume_unwind(e)
+			let handle = s.spawn(move || worker_loop(i, state, w, stealers));
+			worker_threads[i].write(handle.thread().clone());
 		}
-	}
+		let _ = state
+			.worker_threads
+			.set(unsafe { worker_threads.assume_init() });
+		state.wake_all();
+	});
 }
 
 /// Steal and execute jobs until all work is complete.
@@ -247,7 +236,8 @@ fn worker_loop(
 		let Some(job) = find_task(&queue, &state.globalq, &stealers) else {
 			/* No work available; check termination condition before
 			 * parking to avoid missed wakeups */
-			if state.njobs.load(Ordering::Acquire) == 0 {
+			let n = state.njobs.load(Ordering::Acquire);
+			if n == 0 {
 				state.wake_all();
 				return;
 			}
@@ -259,7 +249,7 @@ fn worker_loop(
 			JobType::Lex { file, fdata } => {
 				let tokens =
 					lexer::tokenize(&fdata.buffer).unwrap_or_else(|e| {
-						emit_errors(&fdata, once(e));
+						emit_errors(&fdata, iter::once(e));
 						process::exit(1)
 					});
 
