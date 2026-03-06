@@ -8,8 +8,14 @@ boxcar = "0.2.14"
 clap = { version = "4", features = ["derive"] }
 crossbeam-deque = "0.8.6"
 dashmap = "6.1.0"
-# num-rational = "0.4.2"
 phf = { version = "0.13.1", features = ["macros"] }
 soa-rs = "0.9.1"
 unicode-normalization = "0.1.25"
 unicode-width = "0.2.2"
+
+[features]
+fetch = ["dep:ureq", "dep:zip"]
+
+[build-dependencies]
+ureq = { version = "3.2.0", optional = true }
+zip = { version = "8.2.0", optional = true }
