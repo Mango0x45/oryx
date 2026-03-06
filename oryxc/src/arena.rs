@@ -214,7 +214,7 @@ impl<'s, 'a> ScopedArena<'s, 'a> {
 		return self.inner.alloc(value);
 	}
 
-	pub fn alloc_slice<T>(&self, len: usize) -> &'a mut [T] {
+	pub fn alloc_slice<T>(&self, len: usize) -> &'s mut [T] {
 		return self.inner.alloc_slice(len);
 	}
 }
