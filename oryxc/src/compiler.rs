@@ -29,6 +29,10 @@ use crossbeam_deque::{
 use dashmap::DashMap;
 use soa_rs::Soa;
 
+use crate::arena::{
+	GlobalArena,
+	LocalArena,
+};
 use crate::errors::OryxError;
 use crate::intern::Interner;
 use crate::lexer::Token;
@@ -42,6 +46,7 @@ use crate::{
 	err,
 	lexer,
 	parser,
+	size,
 };
 
 #[allow(dead_code)]
@@ -107,7 +112,8 @@ pub struct Job {
 
 struct CompilerState<'a> {
 	#[allow(dead_code)]
-	globalq: Injector<Job>,
+	global_arena:   GlobalArena,
+	globalq:        Injector<Job>,
 	njobs:          AtomicUsize,
 	flags:          Flags,
 	worker_threads: OnceLock<Box<[thread::Thread]>>,
@@ -171,8 +177,10 @@ where
 	}
 
 	let njobs = initial_jobs.len();
+
 	let state = Arc::new(CompilerState {
 		files,
+		global_arena: GlobalArena::new(size::kibibytes(64)),
 		globalq: Injector::new(),
 		njobs: AtomicUsize::new(njobs),
 		flags,
@@ -215,6 +223,7 @@ where
 		for (i, w) in workers.into_iter().enumerate() {
 			let stealers = Arc::clone(&stealers);
 			let state = Arc::clone(&state);
+			let arena = LocalArena::new(&state.global_arena);
 			let handle = s.spawn(move || worker_loop(i, state, w, stealers));
 			worker_threads[i].write(handle.thread().clone());
 		}
@@ -228,17 +237,19 @@ where
 /// Steal and execute jobs until all work is complete.
 fn worker_loop(
 	_id: usize,
-	state: Arc<CompilerState>,
+	c_state: Arc<CompilerState>,
 	queue: Worker<Job>,
 	stealers: Arc<[Stealer<Job>]>,
 ) {
+	let arena = LocalArena::new(&c_state.global_arena);
+
 	loop {
-		let Some(job) = find_task(&queue, &state.globalq, &stealers) else {
+		let Some(job) = find_task(&queue, &c_state.globalq, &stealers) else {
 			/* No work available; check termination condition before
 			 * parking to avoid missed wakeups */
-			let n = state.njobs.load(Ordering::Acquire);
+			let n = c_state.njobs.load(Ordering::Acquire);
 			if n == 0 {
-				state.wake_all();
+				c_state.wake_all();
 				return;
 			}
 			thread::park();
@@ -253,7 +264,7 @@ fn worker_loop(
 						process::exit(1)
 					});
 
-				if state.flags.debug_lexer {
+				if c_state.flags.debug_lexer {
 					let mut handle = io::stderr().lock();
 					for t in tokens.iter() {
 						let _ = write!(handle, "{t:?}\n");
@@ -261,9 +272,9 @@ fn worker_loop(
 				}
 
 				fdata.tokens.set(tokens).unwrap();
-				state.job_push(
+				c_state.job_push(
 					&queue,
-					state.job_new(JobType::Parse { file, fdata }),
+					c_state.job_new(JobType::Parse { file, fdata }),
 				);
 			},
 
@@ -276,7 +287,7 @@ fn worker_loop(
 					process::exit(1)
 				});
 
-				if state.flags.debug_parser {
+				if c_state.flags.debug_parser {
 					let mut handle = io::stderr().lock();
 					for n in ast.iter() {
 						let _ = write!(handle, "{n:?}\n");
@@ -287,9 +298,9 @@ fn worker_loop(
 				fdata.ast.set(ast).unwrap();
 				fdata.extra_data.set(extra_data).unwrap();
 
-				state.job_push(
+				c_state.job_push(
 					&queue,
-					state.job_new(JobType::FindSymbolsInScope {
+					c_state.job_new(JobType::FindSymbolsInScope {
 						fdata,
 						scope: ScopeId::GLOBAL,
 						block: root,
@@ -331,7 +342,7 @@ fn worker_loop(
 							&*(&fdata.buffer[span.0..span.1] as *const str)
 						};
 
-						let symid = state.interner.intern(view);
+						let symid = c_state.interner.intern(view);
 						let sym = Symbol::default();
 
 						if let Some(mut sym) =
@@ -349,9 +360,9 @@ fn worker_loop(
 						}
 					}
 
-					state.job_push(
+					c_state.job_push(
 						&queue,
-						state.job_new(JobType::ResolveDefBind {
+						c_state.job_new(JobType::ResolveDefBind {
 							fdata: fdata.clone(),
 							scope,
 							node: multi_def_bind,
@@ -365,16 +376,16 @@ fn worker_loop(
 			JobType::ResolveDefBind { fdata, scope, node } => {},
 		}
 
-		if let Some((_, deps)) = state.deps.remove(&job.id) {
+		if let Some((_, deps)) = c_state.deps.remove(&job.id) {
 			for j in deps {
-				state.job_push(&queue, j);
+				c_state.job_push(&queue, j);
 			}
 		}
 
-		if state.njobs.fetch_sub(1, Ordering::Release) == 1 {
+		if c_state.njobs.fetch_sub(1, Ordering::Release) == 1 {
 			// njobs is 0; wake all threads so they can observe the termination
 			// condition and exit.
-			state.wake_all();
+			c_state.wake_all();
 
 			// break here to avoid unnecessary steal attempts after work is
 			// done.

@@ -18,6 +18,9 @@ struct RawBlock {
 	layout: Layout,
 }
 
+unsafe impl Send for RawBlock {}
+unsafe impl Sync for RawBlock {}
+
 pub struct GlobalArena {
 	blksz:  usize,
 	blocks: Mutex<Vec<RawBlock>>,
