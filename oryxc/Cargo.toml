@@ -1,5 +1,5 @@
 [package]
-name = "oryx"
+name = "oryxc"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,6 +10,7 @@ crossbeam-deque = "0.8.6"
 dashmap = "6.1.0"
 phf = { version = "0.13.1", features = ["macros"] }
 soa-rs = "0.9.1"
+unicode-normalization = "0.1.25"
 unicode-width = "0.2.2"
 
 [features]
