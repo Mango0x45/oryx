@@ -2,7 +2,10 @@ use std::alloc::{
 	self,
 	Layout,
 };
-use std::cell::Cell;
+use std::cell::{
+	Cell,
+	RefCell,
+};
 use std::ptr::{
 	self,
 	NonNull,
@@ -37,7 +40,7 @@ impl GlobalArena {
 	fn allocate_block(&self, layout: Layout) -> RawBlock {
 		let layout = Layout::from_size_align(
 			layout.size().max(self.blksz),
-			layout.align(),
+			layout.align().max(16),
 		)
 		.unwrap_or_else(|e| err!(e, "allocation error"));
 		let ptr = NonNull::new(unsafe { alloc::alloc(layout) })
@@ -59,32 +62,51 @@ impl Drop for GlobalArena {
 	}
 }
 
+#[derive(Clone, Copy)]
+pub struct Mark {
+	blk: usize,
+	beg: *mut u8,
+	end: *mut u8,
+}
+
 pub struct LocalArena<'a> {
-	parent: &'a GlobalArena,
-	cursor: Cell<*mut u8>,
-	end:    Cell<*mut u8>,
+	parent:        &'a GlobalArena,
+	beg:           Cell<*mut u8>,
+	end:           Cell<*mut u8>,
+	curblk:        Cell<usize>,
+	blks:          RefCell<Vec<RawBlock>>,
+	#[cfg(debug_assertions)]
+	pub waterline: Cell<usize>,
 }
 
 impl<'a> LocalArena<'a> {
 	pub fn new(parent: &'a GlobalArena) -> Self {
 		return Self {
 			parent,
-			cursor: Cell::new(ptr::null_mut()),
+			beg: Cell::new(ptr::null_mut()),
 			end: Cell::new(ptr::null_mut()),
+			curblk: Cell::new(usize::MAX),
+			blks: RefCell::new(Vec::new()),
+			#[cfg(debug_assertions)]
+			waterline: Cell::new(0),
 		};
 	}
 
 	fn alloc_raw(&self, layout: Layout) -> NonNull<u8> {
-		let cursor = self.cursor.get() as usize;
+		if cfg!(debug_assertions) {
+			self.waterline.update(|x| x + layout.size());
+		}
+
+		let beg = self.beg.get() as usize;
 
 		let align_offset =
-			cursor.wrapping_add(layout.align() - 1) & !(layout.align() - 1);
-		let Some(next_cursor) = align_offset.checked_add(layout.size()) else {
+			beg.wrapping_add(layout.align() - 1) & !(layout.align() - 1);
+		let Some(next_beg) = align_offset.checked_add(layout.size()) else {
 			err!("allocation overflow");
 		};
 
-		return if next_cursor <= self.end.get() as usize {
-			self.cursor.set(next_cursor as *mut u8);
+		return if next_beg <= self.end.get() as usize {
+			self.beg.set(next_beg as *mut u8);
 			unsafe { NonNull::new_unchecked(align_offset as *mut u8) }
 		} else {
 			self.alloc_slow(layout)
@@ -93,13 +115,53 @@ impl<'a> LocalArena<'a> {
 
 	#[cold]
 	fn alloc_slow(&self, layout: Layout) -> NonNull<u8> {
-		let block = self.parent.allocate_block(layout);
-		let beg = block.ptr.as_ptr() as usize;
-		let end = beg + block.layout.size();
-		let next_cursor = beg + layout.size();
-		self.cursor.set(next_cursor as *mut u8);
+		let mut blks = self.blks.borrow_mut();
+		let next_blk = self.curblk.get().wrapping_add(1);
+
+		/* Find the next recycleable block that fits */
+		let mut found_blk = None;
+		let mut align_beg = 0;
+		for i in next_blk..blks.len() {
+			let blk = &blks[i];
+			let beg = blk.ptr.as_ptr() as usize;
+			let end = beg + blk.layout.size();
+			let aligned =
+				beg.wrapping_add(layout.align() - 1) & !(layout.align() - 1);
+			if aligned.checked_add(layout.size()).unwrap_or(usize::MAX) <= end {
+				found_blk = Some(i);
+				align_beg = aligned;
+				break;
+			}
+		}
+
+		if let Some(i) = found_blk {
+			blks.swap(next_blk, i);
+
+			let blk = &blks[next_blk];
+			let end = blk.ptr.as_ptr() as usize + blk.layout.size();
+
+			self.curblk.set(next_blk);
+			self.beg.set((align_beg + layout.size()) as *mut u8);
+			self.end.set(end as *mut u8);
+
+			return unsafe { NonNull::new_unchecked(align_beg as *mut u8) };
+		}
+
+		let blk = self.parent.allocate_block(layout);
+		let beg = blk.ptr.as_ptr() as usize;
+		let end = beg + blk.layout.size();
+		let align_beg =
+			beg.wrapping_add(layout.align() - 1) & !(layout.align() - 1);
+
+		blks.push(blk);
+		let last_blk = blks.len() - 1;
+		blks.swap(next_blk, last_blk);
+
+		self.curblk.set(next_blk);
+		self.beg.set((align_beg + layout.size()) as *mut u8);
 		self.end.set(end as *mut u8);
-		return unsafe { NonNull::new_unchecked(beg as *mut u8) };
+
+		unsafe { NonNull::new_unchecked(align_beg as *mut u8) }
 	}
 
 	pub fn alloc<T>(&self, value: T) -> &'a mut T {
@@ -115,6 +177,45 @@ impl<'a> LocalArena<'a> {
 			.unwrap_or_else(|e| err!(e, "allocation error"));
 		let ptr = self.alloc_raw(layout).cast::<T>().as_ptr();
 		return unsafe { slice::from_raw_parts_mut(ptr, len) };
+	}
+
+	fn mark(&self) -> Mark {
+		return Mark {
+			blk: self.curblk.get(),
+			beg: self.beg.get(),
+			end: self.end.get(),
+		};
+	}
+
+	fn restore(&self, mark: Mark) {
+		self.curblk.set(mark.blk);
+		self.beg.set(mark.beg);
+		self.end.set(mark.end);
+	}
+
+	pub fn scope<'s, R, F>(&'s mut self, f: F) -> R
+	where
+		F: FnOnce(&ScopedArena<'s, 'a>) -> R,
+	{
+		let m = self.mark();
+		let r = f(&ScopedArena { inner: self });
+		self.restore(m);
+		return r;
+	}
+}
+
+/// A wrapper around LocalArena that bounds returned references to 's.
+pub struct ScopedArena<'s, 'a> {
+	inner: &'s LocalArena<'a>,
+}
+
+impl<'s, 'a> ScopedArena<'s, 'a> {
+	pub fn alloc<T>(&self, value: T) -> &'s mut T {
+		return self.inner.alloc(value);
+	}
+
+	pub fn alloc_slice<T>(&self, len: usize) -> &'a mut [T] {
+		return self.inner.alloc_slice(len);
 	}
 }
 
