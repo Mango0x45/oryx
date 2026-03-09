@@ -99,5 +99,7 @@ number-dec: "#d"? number-rest<[0123456789]>;
 number-hex: "#x"  number-rest<[0123456789ABCDEF]>;
 
 (* <a> is the alphabet *)
-number-rest<a>: number-word<a>? ("." number-word<a>?)? ("e" [-+] number-word<a>)?;
+number-rest<a>: (number-word<a> ("." number-word<a>?)?
+                | "." number-word<a>)
+				("e" [-+] number-word<a>)?;
 number-word<a>: <a> ((<a> | "'")* <a>)?;
