@@ -56,6 +56,7 @@ pub enum TokenType {
 	Identifier,
 	KeywordDef,
 	KeywordFunc,
+	KeywordModule,
 	KeywordReturn,
 	Number,
 	Percent2,
@@ -123,6 +124,7 @@ impl<'a> LexerContext<'a> {
 static KEYWORDS: phf::Map<&'static str, TokenType> = phf::phf_map! {
 	"def" => TokenType::KeywordDef,
 	"func" => TokenType::KeywordFunc,
+	"module" => TokenType::KeywordModule,
 	"return" => TokenType::KeywordReturn,
 };
 
