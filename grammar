@@ -1,0 +1,103 @@
+root: module-decl top-level*;
+
+module-decl: "module" ident ";";
+top-level: def-bind ";";
+
+def-bind: "def" decl-list "=" expr-list;
+
+decl-list: (ident expr? ",")* ident expr?;
+expr-list: (expr ",")* expr;
+
+expr
+	: ident
+	| number
+	| string
+	| function-proto
+	| function
+	| function-call
+	| expr "^" /* Pointer Dereference */
+	| unary-op expr
+	| expr binary-op expr
+	| "(" expr ")"
+	;
+
+function: function-proto block-statement;
+function-call: expr "(" expr-list? ")";
+function-proto: "func" "(" decl-list? ")" (expr | "(" expr-list ")")?;
+
+block-statement: "{" statement* "}";
+statement
+	: block-statement
+	| (expr
+	  | def-bind
+	  | expr-list "=" expr-list
+	  | "return" expr-list?
+	  )?
+	  ";"
+	;
+
+unary-op
+	: "^" /* Pointer */
+	| "~"
+	| "+"
+	| "-"
+	| "&"
+	;
+
+binary-op
+	: "+"
+	| "-"
+	| "*"
+	| "/"
+	| "%"  /* Remainder */
+	| "%%" /* Modulus */
+	| "~"  /* XOR */
+	| "&"
+	| "|"
+	| "&~" /* Bitwise-ANDNOT */
+	| "<<"
+	| "<<<" /* Left Rotate */
+	| ">>"
+	| ">>>" /* Right Rotate */
+	| "&&"
+	| "||"
+	| "=="
+	| "!="
+	| "<="
+	| ">="
+	| "<"
+	| ">"
+	;
+
+ident: xid-start xid-continue*;
+xid-start
+	: \p{XID_Start}
+	| "_"
+	| "$"
+	;
+xid-continue
+	: \p{XID_Continue}
+	| "′"
+	| "″"
+	| "‴"
+	| "⁗"
+	;
+
+string: "\"" string-part+ "\"";
+string-part: [^"] | "\\\"";
+
+number
+	: number-bin
+	| number-oct
+	| number-dec
+	| number-hex
+	;
+
+number-bin: "#b"  number-rest<[01]>;
+number-oct: "#o"  number-rest<[01234567>;
+number-dec: "#d"? number-rest<[0123456789]>;
+number-hex: "#x"  number-rest<[0123456789ABCDEF]>;
+
+(* <a> is the alphabet *)
+number-rest<a>: number-word<a>? ("." number-word<a>?)? ("e" [-+] number-word<a>)?;
+number-word<a>: <a> ((<a> | "'")* <a>)?;
