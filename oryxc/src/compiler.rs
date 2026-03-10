@@ -37,7 +37,7 @@ use crate::errors::OryxError;
 use crate::intern::Interner;
 use crate::lexer::Token;
 use crate::parser::{
-	AstNode,
+	Ast,
 	AstType,
 };
 use crate::prelude::*;
@@ -51,12 +51,10 @@ use crate::{
 
 #[allow(dead_code)]
 pub struct FileData {
-	pub name:       OsString,
-	pub buffer:     String,
-	pub tokens:     OnceLock<Soa<Token>>,
-	pub ast:        OnceLock<Soa<AstNode>>,
-	pub extra_data: OnceLock<Vec<u32>>,
-	pub symtab:     DashMap<(ScopeId, SymbolId), Symbol>,
+	pub name:   OsString,
+	pub buffer: String,
+	pub tokens: OnceLock<Soa<Token>>,
+	pub ast:    OnceLock<Ast>,
 }
 
 impl FileData {
@@ -72,14 +70,12 @@ impl FileData {
 		fs::File::open(&name)?.read_to_string(&mut buffer)?;
 		buffer.push_str(unsafe { std::str::from_utf8_unchecked(&PAD) });
 
-		Ok(Self {
+		return Ok(Self {
 			name,
 			buffer,
 			tokens: OnceLock::new(),
 			ast: OnceLock::new(),
-			extra_data: OnceLock::new(),
-			symtab: DashMap::new(),
-		})
+		});
 	}
 }
 
@@ -289,14 +285,13 @@ fn worker_loop(
 
 				if c_state.flags.debug_parser {
 					let mut handle = io::stderr().lock();
-					for n in ast.iter() {
+					for n in ast.nodes.iter() {
 						let _ = write!(handle, "{n:?}\n");
 					}
 				}
 
-				let root = (ast.len() - 1) as u32;
+				let root = (ast.nodes.len() - 1) as u32;
 				fdata.ast.set(ast).unwrap();
-				fdata.extra_data.set(extra_data).unwrap();
 
 				c_state.job_push(
 					&queue,
@@ -315,26 +310,22 @@ fn worker_loop(
 			} => {
 				let tokens = fdata.tokens.get().unwrap();
 				let ast = fdata.ast.get().unwrap();
-				let extra_data = fdata.extra_data.get().unwrap();
-				let SubNodes(beg, nstmts) = ast.sub()[block as usize];
+				let SubNodes(beg, nstmts) = ast.nodes.sub()[block as usize];
 
 				let mut errors = Vec::new();
 
 				for i in beg..beg + nstmts {
-					let multi_def_bind = extra_data[i as usize];
-
-					if ast.kind()[multi_def_bind as usize]
-						!= AstType::MultiDefBind
+					let node = ast.extra[i as usize];
+					if ast.nodes.kind()[node as usize] != AstType::MultiDefBind
 					{
 						continue;
 					}
 
-					let def_idents = ast.sub()[multi_def_bind as usize].0;
-					let nidents = extra_data[def_idents as usize];
+					let identsbeg = ast.nodes.sub()[node as usize].0;
+					let nidents = ast.extra[identsbeg as usize];
 
 					for j in 0..nidents {
-						let ident =
-							extra_data[(def_idents + 1 + j * 2) as usize];
+						let ident = ast.extra[(identsbeg + 1 + j * 2) as usize];
 						let span = tokens.view()[ident as usize];
 
 						/* Make string slice lifetime 'static */

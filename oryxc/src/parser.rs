@@ -44,6 +44,12 @@ pub struct AstNode {
 	pub sub:  SubNodes,
 }
 
+#[derive(Debug)]
+pub struct Ast {
+	pub nodes: Soa<AstNode>,
+	pub extra: Vec<u32>,
+}
+
 struct Parser<'a> {
 	ast:        Soa<AstNode>,
 	extra_data: Vec<u32>,
@@ -885,9 +891,7 @@ impl<'a> Parser<'a> {
 	}
 }
 
-pub fn parse(
-	tokens: &Soa<Token>,
-) -> Result<(Soa<AstNode>, Vec<u32>), Vec<OryxError>> {
+pub fn parse(tokens: &Soa<Token>) -> Result<Ast, Vec<OryxError>> {
 	let mut p = Parser::new(tokens);
 	while p.get() != TokenType::Eof {
 		p.parse_toplevel();
@@ -904,5 +908,8 @@ pub fn parse(
 		tok:  0,
 		sub:  SubNodes(stmtsbeg as u32, nstmts as u32),
 	});
-	return Ok((p.ast, p.extra_data));
+	return Ok(Ast {
+		nodes: p.ast,
+		extra: p.extra_data,
+	});
 }
