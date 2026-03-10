@@ -34,6 +34,7 @@ use crate::arena::{
 	LocalArena,
 };
 use crate::errors::OryxError;
+use crate::hashtrie::HTrie;
 use crate::intern::Interner;
 use crate::lexer::Token;
 use crate::parser::{
@@ -55,6 +56,7 @@ pub struct FileData {
 	pub buffer: String,
 	pub tokens: OnceLock<Soa<Token>>,
 	pub ast:    OnceLock<Ast>,
+	pub scopes: OnceLock<HTrie<ScopeId, Scope>>,
 }
 
 impl FileData {
@@ -75,6 +77,7 @@ impl FileData {
 			buffer,
 			tokens: OnceLock::new(),
 			ast: OnceLock::new(),
+			scopes: OnceLock::new(),
 		});
 	}
 }
@@ -89,11 +92,10 @@ pub enum JobType {
 		file:  FileId,
 		fdata: Arc<FileData>,
 	},
-	FindSymbolsInScope {
-		fdata: Arc<FileData>,
-		scope: ScopeId,
-		block: u32,
-	},
+	IndexScopeConstants {
+		fdata:  Arc<FileData>,
+		block:  u32,
+		parent: ScopeId,
 	},
     ResolveDefBind {
         fdata: Arc<FileData>,
@@ -135,12 +137,21 @@ impl<'a> CompilerState<'a> {
 		}
 	}
 
+	/// Generate a new ID for a job, scope, etc.
+	#[inline(always)]
+	fn genid(&self) -> usize {
+		return self.next_id.fetch_add(1, Ordering::Relaxed);
+	}
+
+	/// Build a new job of type KIND.
+	#[inline(always)]
 	fn job_new(&self, kind: JobType) -> Job {
-		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+		let id = self.genid();
 		return Job { id, kind };
 	}
 
-	/// Push a job onto a worker's local queue and wake all threads.
+	/// Push a job onto a worker’s local queue and wake all threads.
+	#[inline(always)]
 	fn job_push(&self, queue: &Worker<Job>, job: Job) {
 		self.njobs.fetch_add(1, Ordering::Relaxed);
 		queue.push(job);
@@ -323,29 +334,33 @@ fn worker_loop(
 
 				let root = (ast.nodes.len() - 1) as u32;
 				fdata.ast.set(ast).unwrap();
+				fdata.scopes.set(HTrie::new()).unwrap();
 
 				c_state.job_push(
 					&queue,
-					c_state.job_new(JobType::FindSymbolsInScope {
+					c_state.job_new(JobType::IndexScopeConstants {
 						fdata,
-						scope: ScopeId::GLOBAL,
 						block: root,
+						parent: ScopeId::INVALID,
 					}),
 				);
 				true
 			},
 
-			JobType::FindSymbolsInScope {
+			JobType::IndexScopeConstants {
 				fdata,
-				scope,
 				block,
+				parent,
 			} => {
 				let tokens = fdata.tokens.get().unwrap();
 				let ast = fdata.ast.get().unwrap();
 				let SubNodes(beg, nstmts) = ast.nodes.sub()[block as usize];
 
 				let mut errors = Vec::new();
+				let scope = Scope::new(parent);
 
+				/* First pass inserts all the symbols in this scope into the
+				 * symbol table */
 				for i in beg..beg + nstmts {
 					let node = ast.extra[i as usize];
 					if ast.nodes.kind()[node as usize] != AstType::MultiDefBind
@@ -369,11 +384,10 @@ fn worker_loop(
 						let sym = Symbol::default();
 
 						if let Some(mut sym) =
-							fdata.symtab.insert((scope, symid), sym)
+							scope.symtab.insert(symid, sym, &arena)
 						{
 							sym.state = ResolutionState::Poisoned;
-							fdata.symtab.insert((scope, symid), sym);
-
+							scope.symtab.insert(symid, sym, &arena);
 							errors.push(OryxError::new(
 								span,
 								format!(
@@ -382,16 +396,28 @@ fn worker_loop(
 							));
 						}
 					}
-
-					c_state.job_push(
-						&queue,
-						c_state.job_new(JobType::ResolveDefBind {
-							fdata: fdata.clone(),
-							scope,
-							node: multi_def_bind,
-						}),
-					);
 				}
+
+				let scopeid = if parent == ScopeId::INVALID {
+					ScopeId::GLOBAL
+				} else {
+					ScopeId(c_state.genid())
+				};
+				fdata.scopes.get().unwrap().insert(scopeid, scope, &arena);
+
+                /* Second pass emits jobs to resolve types */
+                for i in beg..beg + nstmts {
+					let node = ast.extra[i as usize];
+					if ast.nodes.kind()[node as usize] != AstType::MultiDefBind
+					{
+						continue;
+					}
+                    c_state.job_push(&queue, c_state.job_new(JobType::ResolveDefBind {
+                        fdata: fdata.clone(),
+                        node,
+                        scope: scopeid,
+                    }));
+                }
 
 				let ok = errors.is_empty();
 				emit_errors(&fdata, errors);

@@ -4,6 +4,8 @@ use std::fmt::{
 	Formatter,
 };
 
+use crate::hashtrie::HTrie;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FileId(pub usize);
 
@@ -11,14 +13,32 @@ pub struct FileId(pub usize);
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SymbolId(pub u32);
 
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ScopeId(pub usize);
 
 impl ScopeId {
 	pub const GLOBAL: Self = Self(0);
+	pub const INVALID: Self = Self(usize::MAX);
 }
 
-#[derive(Default)]
+#[derive(Debug)]
+pub struct Scope {
+	pub parent: ScopeId,
+	pub symtab: HTrie<SymbolId, Symbol>,
+}
+
+impl Scope {
+	pub fn new(parent: ScopeId) -> Self {
+		return Self {
+			parent,
+			symtab: HTrie::new(),
+		};
+	}
+}
+
+#[repr(u8)]
+#[derive(Debug, Default)]
 pub enum ResolutionState {
 	#[default]
 	Unresolved,
@@ -27,14 +47,22 @@ pub enum ResolutionState {
 	Poisoned,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Symbol {
-	pub state:  ResolutionState,
-	pub r#type: u32,
+	pub state: ResolutionState,
+	pub kind:  u32,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeclKind {
+	ConstDef = 0,
+	Param    = 1,
 }
 
 pub enum OryxType {
 	Integer { bits: usize, signed: bool },
+	Boolean,
 	Pointer { base: u32 },
 	Function { args: Vec<u32>, rets: Vec<u32> },
 }
