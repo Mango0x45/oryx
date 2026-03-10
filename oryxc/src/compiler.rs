@@ -97,11 +97,11 @@ pub enum JobType {
 		block:  u32,
 		parent: ScopeId,
 	},
-    ResolveDefBind {
-        fdata: Arc<FileData>,
-        node:  u32,
-        scope: ScopeId,
-    },
+	ResolveDefBind {
+		fdata: Arc<FileData>,
+		node:  u32,
+		scope: ScopeId,
+	},
 }
 
 pub struct Job {
@@ -405,19 +405,22 @@ fn worker_loop(
 				};
 				fdata.scopes.get().unwrap().insert(scopeid, scope, &arena);
 
-                /* Second pass emits jobs to resolve types */
-                for i in beg..beg + nstmts {
+				/* Second pass emits jobs to resolve types */
+				for i in beg..beg + nstmts {
 					let node = ast.extra[i as usize];
 					if ast.nodes.kind()[node as usize] != AstType::MultiDefBind
 					{
 						continue;
 					}
-                    c_state.job_push(&queue, c_state.job_new(JobType::ResolveDefBind {
-                        fdata: fdata.clone(),
-                        node,
-                        scope: scopeid,
-                    }));
-                }
+					c_state.job_push(
+						&queue,
+						c_state.job_new(JobType::ResolveDefBind {
+							fdata: fdata.clone(),
+							node,
+							scope: scopeid,
+						}),
+					);
+				}
 
 				let ok = errors.is_empty();
 				emit_errors(&fdata, errors);
