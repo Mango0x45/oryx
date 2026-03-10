@@ -94,11 +94,12 @@ pub enum JobType {
 		scope: ScopeId,
 		block: u32,
 	},
-	ResolveDefBind {
-		fdata: Arc<FileData>,
-		scope: ScopeId,
-		node:  u32,
 	},
+    ResolveDefBind {
+        fdata: Arc<FileData>,
+        node:  u32,
+        scope: ScopeId,
+    },
 }
 
 pub struct Job {
@@ -144,6 +145,14 @@ impl<'a> CompilerState<'a> {
 		self.njobs.fetch_add(1, Ordering::Relaxed);
 		queue.push(job);
 		self.wake_all();
+	}
+
+	/// Signal a job completion by decrementing the job count.
+	///
+	/// Returns the number of remaining jobs
+	#[inline(always)]
+	fn job_complete(&self) -> usize {
+		return self.njobs.fetch_sub(1, Ordering::Release) - 1;
 	}
 }
 
@@ -214,20 +223,38 @@ where
 	let workers = unsafe { workers.assume_init() };
 	let stealers = Arc::from(unsafe { stealers.assume_init() });
 
-	let mut worker_threads = Box::new_uninit_slice(workers.len());
+	let mut ok = true;
 	thread::scope(|s| {
+		let mut handles = Box::new_uninit_slice(workers.len());
+		let mut worker_threads = Box::new_uninit_slice(handles.len());
+
 		for (i, w) in workers.into_iter().enumerate() {
 			let stealers = Arc::clone(&stealers);
 			let state = Arc::clone(&state);
 			let arena = LocalArena::new(&state.global_arena);
 			let handle = s.spawn(move || worker_loop(i, state, w, stealers));
 			worker_threads[i].write(handle.thread().clone());
+			handles[i].write(handle);
 		}
 		let _ = state
 			.worker_threads
 			.set(unsafe { worker_threads.assume_init() });
 		state.wake_all();
+
+		for h in handles {
+			match unsafe { h.assume_init() }.join() {
+				Ok(thrd_ok) => {
+					if !thrd_ok {
+						ok = false;
+					}
+				},
+				Err(_) => ok = false,
+			}
+		}
 	});
+	if !ok {
+		process::exit(1);
+	}
 }
 
 /// Steal and execute jobs until all work is complete.
@@ -236,7 +263,8 @@ fn worker_loop(
 	c_state: Arc<CompilerState>,
 	queue: Worker<Job>,
 	stealers: Arc<[Stealer<Job>]>,
-) {
+) -> bool {
+	let mut ok = true;
 	let arena = LocalArena::new(&c_state.global_arena);
 
 	loop {
@@ -246,19 +274,21 @@ fn worker_loop(
 			let n = c_state.njobs.load(Ordering::Acquire);
 			if n == 0 {
 				c_state.wake_all();
-				return;
+				return ok;
 			}
 			thread::park();
 			continue;
 		};
 
-		match job.kind {
-			JobType::Lex { file, fdata } => {
-				let tokens =
-					lexer::tokenize(&fdata.buffer).unwrap_or_else(|e| {
+		let result = match job.kind {
+			JobType::Lex { file, fdata } => 'blk: {
+				let tokens = match lexer::tokenize(&fdata.buffer) {
+					Ok(xs) => xs,
+					Err(e) => {
 						emit_errors(&fdata, iter::once(e));
-						process::exit(1)
-					});
+						break 'blk false;
+					},
+				};
 
 				if c_state.flags.debug_lexer {
 					let mut handle = io::stderr().lock();
@@ -272,16 +302,17 @@ fn worker_loop(
 					&queue,
 					c_state.job_new(JobType::Parse { file, fdata }),
 				);
+				true
 			},
 
-			JobType::Parse { file, fdata } => {
-				let (ast, extra_data) = parser::parse(
-					fdata.tokens.get().unwrap(),
-				)
-				.unwrap_or_else(|errs| {
-					emit_errors(&fdata, errs);
-					process::exit(1)
-				});
+			JobType::Parse { file, fdata } => 'blk: {
+				let ast = match parser::parse(fdata.tokens.get().unwrap()) {
+					Ok(ast) => ast,
+					Err(errs) => {
+						emit_errors(&fdata, errs);
+						break 'blk false;
+					},
+				};
 
 				if c_state.flags.debug_parser {
 					let mut handle = io::stderr().lock();
@@ -301,6 +332,7 @@ fn worker_loop(
 						block: root,
 					}),
 				);
+				true
 			},
 
 			JobType::FindSymbolsInScope {
@@ -361,10 +393,18 @@ fn worker_loop(
 					);
 				}
 
+				let ok = errors.is_empty();
 				emit_errors(&fdata, errors);
+				ok
 			},
 
-			JobType::ResolveDefBind { fdata, scope, node } => {},
+            JobType::ResolveDefBind { fdata, node, scope } => {
+                todo!("resolving is yet to be implemented");
+                true
+            },
+		};
+		if !result {
+			ok = false;
 		}
 
 		if let Some((_, deps)) = c_state.deps.remove(&job.id) {
@@ -373,14 +413,9 @@ fn worker_loop(
 			}
 		}
 
-		if c_state.njobs.fetch_sub(1, Ordering::Release) == 1 {
-			// njobs is 0; wake all threads so they can observe the termination
-			// condition and exit.
+		if c_state.job_complete() == 0 {
 			c_state.wake_all();
-
-			// break here to avoid unnecessary steal attempts after work is
-			// done.
-			break;
+			return ok;
 		}
 	}
 }
