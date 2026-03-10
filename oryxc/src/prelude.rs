@@ -47,17 +47,17 @@ pub enum ResolutionState {
 	Poisoned,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Symbol {
 	pub state: ResolutionState,
-	pub kind:  u32,
+	pub kind:  SymbolType,
 }
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DeclKind {
-	ConstDef = 0,
-	Param    = 1,
+pub enum SymbolType {
+	Constant,
+	FuncParam,
 }
 
 pub enum OryxType {

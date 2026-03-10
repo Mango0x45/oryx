@@ -381,7 +381,10 @@ fn worker_loop(
 						};
 
 						let symid = c_state.interner.intern(view);
-						let sym = Symbol::default();
+						let sym = Symbol {
+							state: ResolutionState::Unresolved,
+							kind:  SymbolType::Constant,
+						};
 
 						if let Some(mut sym) =
 							scope.symtab.insert(symid, sym, &arena)
