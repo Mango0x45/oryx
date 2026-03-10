@@ -34,7 +34,6 @@ pub enum AstType {
 	Root,           /* (extra-data, extra-data-len) */
 	String,         /* (_, _) */
 	UnaryOperator,  /* (rhs, _) */
-    ModuleDecl,     /* (ident, _) */
 }
 
 #[derive(Soars)]
@@ -164,7 +163,6 @@ impl<'a> Parser<'a> {
 			AstType::FunProto => node,
 			AstType::Function => node,
 			AstType::Identifier => node,
-			AstType::ModuleDecl => node,
 			AstType::MultiDefBind => node,
 			AstType::Number => node,
 			AstType::Pointer => node,
@@ -229,9 +227,6 @@ impl<'a> Parser<'a> {
 				self.node_leaf_r(self.ast.sub()[node as usize].1)
 			},
 			AstType::Identifier => node,
-			AstType::ModuleDecl => {
-				self.node_leaf_r(self.ast.sub()[node as usize].0)
-			},
 			AstType::MultiDefBind => {
 				let i = self.ast.sub()[node as usize].1;
 				let len = self.extra_data[i as usize];
@@ -886,48 +881,12 @@ impl<'a> Parser<'a> {
 
 		return Ok(lhs);
 	}
-
-	fn parse_module_decl(&mut self) -> bool {
-		let tok = self.cursor;  /* Always 0 */
-		if self.get() != TokenType::KeywordModule {
-			self.new_error(OryxError::new(
-				self.get_view(),
-				"file must begin with a module declaration",
-			));
-			return false;
-		}
-		if self.next() != TokenType::Identifier {
-			self.new_error(OryxError::new(
-				self.get_view(),
-				format!("expected module name but got {:?}", self.get()),
-			));
-			return true;
-		}
-		let ident = self.cursor;
-		if self.next() != TokenType::Semicolon {
-			self.new_error(OryxError::new(
-				self.get_view(),
-				"expected semicolon",
-			));
-			return true;
-		}
-		self.next();            /* Consume ‘;’ */
-		self.new_node(AstNode {
-			kind: AstType::ModuleDecl,
-			tok,
-			sub: SubNodes(ident, u32::MAX),
-		});
-		return false;
-	}
 }
 
 pub fn parse(
 	tokens: &Soa<Token>,
 ) -> Result<(Soa<AstNode>, Vec<u32>), Vec<OryxError>> {
 	let mut p = Parser::new(tokens);
-	if p.parse_module_decl() {
-		p.sync(&[TokenType::Eof, TokenType::KeywordDef]);
-	}
 	while p.get() != TokenType::Eof {
 		p.parse_toplevel();
 	}

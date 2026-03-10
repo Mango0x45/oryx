@@ -1,5 +1,3 @@
-module foo;
-
 def puts = $foreign("puts", func(s ^u8));
 
 /*

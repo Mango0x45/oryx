@@ -1,6 +1,5 @@
-root: module-decl top-level*;
+root: top-level*;
 
-module-decl: "module" ident ";";
 top-level: def-bind ";";
 
 def-bind: "def" decl-list "=" expr-list;
