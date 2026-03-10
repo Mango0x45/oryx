@@ -219,39 +219,42 @@ impl<'s, 'a> ScopedArena<'s, 'a> {
 	}
 }
 
-#[test]
-fn test_alloc_slice() {
-	let arena_global = GlobalArena::new(8);
-	let arena_local_1 = LocalArena::new(&arena_global);
-	let arena_local_2 = LocalArena::new(&arena_global);
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn test_alloc_slice() {
+		let arena_global = GlobalArena::new(8);
+		let arena_local_1 = LocalArena::new(&arena_global);
+		let arena_local_2 = LocalArena::new(&arena_global);
 
-	let s1 = arena_local_1.alloc_slice(8);
-	let s2 = arena_local_2.alloc_slice(4);
-	assert_eq!(s1.len(), 8);
-	assert_eq!(s2.len(), 4);
+		let s1 = arena_local_1.alloc_slice(8);
+		let s2 = arena_local_2.alloc_slice(4);
+		assert_eq!(s1.len(), 8);
+		assert_eq!(s2.len(), 4);
 
-	for i in 0..s1.len() {
-		s1[i] = i;
+		for i in 0..s1.len() {
+			s1[i] = i;
+		}
+		for i in 0..s2.len() {
+			s2[i] = i;
+		}
 	}
-	for i in 0..s2.len() {
-		s2[i] = i;
-	}
-}
 
-#[test]
-fn test_arena_grows() {
-	let arena_global = GlobalArena::new(8);
-	let arena_local = LocalArena::new(&arena_global);
+	#[test]
+	fn test_arena_grows() {
+		let arena_global = GlobalArena::new(8);
+		let arena_local = LocalArena::new(&arena_global);
 
-	let s1 = arena_local.alloc_slice(8);
-	let s2 = arena_local.alloc_slice(69);
-	assert_eq!(s1.len(), 8);
-	assert_eq!(s2.len(), 69);
+		let s1 = arena_local.alloc_slice(8);
+		let s2 = arena_local.alloc_slice(69);
+		assert_eq!(s1.len(), 8);
+		assert_eq!(s2.len(), 69);
 
-	for i in 0..s1.len() {
-		s1[i] = i;
-	}
-	for i in 0..s2.len() {
-		s2[i] = i;
+		for i in 0..s1.len() {
+			s1[i] = i;
+		}
+		for i in 0..s2.len() {
+			s2[i] = i;
+		}
 	}
 }
