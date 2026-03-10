@@ -30,10 +30,10 @@ pub struct Flags {
 
 #[derive(Parser)]
 struct Args {
-	#[arg(short = 'l', long)]
+	#[arg(long)]
 	debug_lexer: bool,
 
-	#[arg(short = 'p', long)]
+	#[arg(long)]
 	debug_parser: bool,
 
 	#[arg(short = 's', long, default_value = "standard")]
@@ -79,7 +79,7 @@ fn main() {
 fn usage() -> String {
 	format!(
 		concat!(
-			"Usage: {0} [-lp] [-s oneline|standard] [-t threads]\n",
+			"Usage: {0} [-s oneline|standard] [-t threads]\n",
 			"       {0} -h",
 		),
 		errors::progname().display()
