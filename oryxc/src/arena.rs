@@ -31,10 +31,10 @@ pub struct GlobalArena {
 
 impl GlobalArena {
 	pub fn new(blksz: usize) -> Self {
-		Self {
+		return Self {
 			blksz,
 			blocks: Mutex::new(Vec::new()),
-		}
+		};
 	}
 
 	fn allocate_block(&self, layout: Layout) -> RawBlock {
