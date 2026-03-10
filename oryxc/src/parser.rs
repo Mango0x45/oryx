@@ -574,7 +574,7 @@ impl<'a> Parser<'a> {
 				_ => p.scratch.len(),
 			};
 
-			let nargs = rhs - lhs;
+			let nargs = (rhs - lhs) / 2;
 			let nrets = p.scratch.len() - rhs;
 			let argbeg = p.extra_data.len();
 			let retbeg = argbeg + nargs * 2 + 1;
