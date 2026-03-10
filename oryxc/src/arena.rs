@@ -179,7 +179,7 @@ impl<'a> LocalArena<'a> {
 		return unsafe { slice::from_raw_parts_mut(ptr, len) };
 	}
 
-	fn mark(&self) -> Mark {
+	pub fn mark(&self) -> Mark {
 		return Mark {
 			blk: self.curblk.get(),
 			beg: self.beg.get(),
@@ -187,7 +187,7 @@ impl<'a> LocalArena<'a> {
 		};
 	}
 
-	fn restore(&self, mark: Mark) {
+	pub fn restore(&self, mark: Mark) {
 		self.curblk.set(mark.blk);
 		self.beg.set(mark.beg);
 		self.end.set(mark.end);
