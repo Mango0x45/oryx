@@ -3,6 +3,7 @@
 mod arena;
 mod compiler;
 mod errors;
+mod hashtrie;
 mod intern;
 mod lexer;
 mod parser;
