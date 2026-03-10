@@ -542,6 +542,15 @@ impl<'a> Parser<'a> {
 		self.next(); /* Consume ‘(’ */
 		return self.scratch_guard(|p| {
 			let lhs = p.parse_decl_list()?;
+			if let Some(&ty) = p.scratch[lhs..].last() {
+				if ty == u32::MAX {
+					let i = p.scratch.len() as u32 - 2;
+					return Err(OryxError::new(
+						p.get_view_at(i),
+						"function parameter has no declared type",
+					));
+				}
+			}
 
 			if p.get_n_move() != TokenType::ParenR {
 				/* TODO: Highlight the entire argument list */
