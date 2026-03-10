@@ -686,6 +686,7 @@ impl<'a> Parser<'a> {
 				| TokenType::Asterisk
 				| TokenType::Percent
 				| TokenType::Percent2
+				| TokenType::SlashPercent
 				| TokenType::Slash => 5,
 				TokenType::Bar
 				| TokenType::Minus
@@ -817,6 +818,7 @@ impl<'a> Parser<'a> {
 				| TokenType::Percent2
 				| TokenType::Plus
 				| TokenType::Slash
+				| TokenType::SlashPercent
 				| TokenType::Tilde => {
 					let i = self.cursor;
 					self.next();

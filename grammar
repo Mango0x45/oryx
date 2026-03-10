@@ -48,6 +48,7 @@ binary-op
 	| "-"
 	| "*"
 	| "/"
+	| "/%" /* Divrem */
 	| "%"  /* Remainder */
 	| "%%" /* Modulus */
 	| "~"  /* XOR */

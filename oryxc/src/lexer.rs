@@ -60,6 +60,7 @@ pub enum TokenType {
 	KeywordReturn,
 	Number,
 	Percent2,
+	SlashPercent,
 	String,
 }
 
@@ -217,6 +218,13 @@ pub fn tokenize(s: &str) -> Result<Soa<Token>, OryxError> {
 				ctx.next(); /* Consume ‘~’ */
 				Some(Token {
 					kind: TokenType::AmpersandTilde,
+					view: (i, j + 1),
+				})
+			},
+			'/' if ctx.peek().is_some_and(|c| c == '%') => {
+				ctx.next(); /* Consume ‘/’ */
+				Some(Token {
+					kind: TokenType::SlashPercent,
 					view: (i, j + 1),
 				})
 			},
